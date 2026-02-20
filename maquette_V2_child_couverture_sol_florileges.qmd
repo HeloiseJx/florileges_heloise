@@ -1,0 +1,242 @@
+---
+title: "child_oso"
+editor: visual
+format:
+  html:
+    toc: true
+    toc-location: left
+    sidebar: true
+    toc-title: "Sommaire"
+    toc-depth: 2
+    embed-resources: true
+execute:
+  echo: true
+  message : false
+  warning : false
+  error : false
+---
+
+Objet final : dt_protoc_oso, format 'sf'
+
+# DONNEES
+
+## import des données
+
+```{r appel librairie terra}
+library(terra) #librairie pour la lecture et la manipulation du raster
+```
+
+## association légende explicite
+
+Le raster oso est projeté en lambert 93. Ce raster est une donnée publique. On le récupère et associe aux différentes catégories numériques la légende qui convient grâce aux métadonnées. production raster oso
+
+```{r creation legende raster oso}
+# Import du raster oso (couverture du sol)
+# projection = lambert 93
+oso <- rast("C:/Git/referentiels_heloise/maps/OSO/DATA/OCS_2023.tif")
+# vérification de la projection :
+crs(oso)
+
+
+## ajout des descriptions des différentes catégories oso 
+library(xml2)
+
+# Lire le fichier XML avec les metadonnees
+xml_doc <- read_xml("C:/Git/referentiels_heloise/maps/OSO/PUBLIC_METADATA/OSO_20230101_RASTER_V1-0_MTD_ALL.xml")
+
+# Extraire les noeuds pour chaque classe
+nodes <- xml_find_all(xml_doc, ".//Classes_Statistic_List")
+
+# Construire un data.frame qui associe aux codes les noms
+oso_legend <- tibble(
+  code = nodes |> xml_attr("classe") |> as.integer(),
+  label = nodes |> xml_find_first(".//Name") |> xml_text()
+)
+
+# Ajouter la légende à la couche oso
+levels(oso) <- oso_legend
+```
+
+# CALCUL COUVERTURE SOL BUFFER 1KM
+
+On calcule ensuite pour 1 km autour de chaque participation aux protocoles VN les % que représentent les 23 catégories de couverture du sol. On fixe la taille de ce buffer à un rayon de 1000 m autour du point.
+
+La fonction suivante (func_oso_categ_couv) permet de faire ce calcul :
+
+```{r fonction calcul couverture sol buffer a partir d une BD Vigie-Nature}
+# fonction qui renvoie le pourcentage des 23 catégories de couverture du sol dans un rayon donné autour des points du protocole
+#' Title
+#'
+#' @param dt_protoc_l93 df contenant les coordonnées des points du protocole en L93
+#' @param zone_tampon rayon en m pour le buffer
+#'
+#' @returns dt_protoc_oso_brut (WGS84) qui renvoie le pourcentage de couverture du sol dans le buffer, pour les 23 catégories oso, ainsi que la couverture du sol là où le point a été réalisé
+#'
+#'
+
+func_oso_categ_couv = function(dt_protoc_l93, zone_tampon) {
+  # Convertir en vecteur terra les points de mes objets sf
+  points_vect <- vect(dt_protoc_l93)
+  
+  # COUVERTURE DU SOL DANS UN BUFFER
+  # Créer un buffer 
+  buffers <- buffer(points_vect, width = zone_tampon) # buffer autour de chacun des points
+  
+  # Extraire les valeurs du raster pour chaque buffer
+  # Lors de l’extraction avec terra::extract(), les IDs générés sont par défaut 1:nrow(points_sf). 
+  extrait <- terra::extract(oso, buffers)
+  
+
+  
+  # La colonne 1 est l'ID du polygone
+  # Les suivantes sont les valeurs du raster
+  # calcul des proportions de couvertures du sol pour chaque point (ID) 
+  prop_couv <- extrait %>%
+    as_tibble() %>%
+    filter(!is.na(label)) %>%  # <-- filtrer les NA avant le group_by
+    group_by(ID, class = label) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(ID) %>%
+    mutate(pct = n / sum(n)) %>%
+    select(ID, class, pct) %>%
+    pivot_wider(
+      names_from = class,
+      values_from = pct,
+      values_fill = 0,
+      names_expand = TRUE
+    ) %>%
+    { if ("NA" %in% names(.)) select(., -`NA`) else . }  # <-- suppression sûre de la colonne "NA"
+
+  
+  # COUVERTURE DU SOL LA OU LE POINT EST PLACE
+  # Lors de l’extraction avec terra::extract(), les IDs générés sont par défaut 1:nrow(points_sf). 
+  extrait_point <- terra::extract(oso, points_vect) %>%
+    rename(couv_point = label)
+  
+  
+  # MERGE COUVERTURE SOL BUFFER ET A L'EMPLACEMENT DU POINT
+  # merge de mon dt_protoc et des frequences associées aux points :
+  ## 1_ creation de la colonne ID qui est le numero de ligne 
+  dt_proto_oso = dt_protoc_l93 %>%
+    mutate(ID = row_number()) %>%
+    left_join(prop_couv) %>%
+    left_join(extrait_point)
+  
+  # on repasse en WGS84 (projection utilisee pour la manipulation des donnees spatiales sur R)
+  dt_protoc_oso_brut = st_transform(dt_proto_oso, crs = 4326)
+
+  return(dt_protoc_oso_brut)
+  
+}   
+
+
+
+# pour les données florileges :
+dt_protoc = df_florileges_centroid
+dt_protoc_l93 <- st_transform(dt_protoc, crs = 2154) # import dt_protocole en wgs84 et conversion en L93 --> projection de la dt OSO
+dt_florileges_oso_WGS84 = func_oso_categ_couv(dt_protoc_l93, 1000)
+# write_rds(dt_florileges_oso_WGS84, "data/dt_florileges_oso_brut_1000.rds") #ecriture de la BD en local
+
+rm(dt_protoc)
+rm(dt_protoc_l93)
+```
+
+# REGROUPEMENT DES CATEGORIES DE COUVERTURE DU SOL
+
+on regroupe les 23 catégories de couverture du sol comme suit :
+
+-   semi-naturel = eau + forets de feuillus + forets de coniferes + pelouses + landes ligneuses + surfaces minérales + plages et dunes + glaciers ou neiges
+
+-   impermeable = batis denses + batis diffus + zones ind et com + surfaces routes + serres
+
+-   agricole = colza + cereales à pailles + protéagineux + soja + tournesol + maïs + riz + tubercules/racines + vergers + vignes + prairies
+
+Pour faire des % :
+
+total = semi-naturel + impermeable + agricole
+
+-   sn = semi-naturel / total
+
+-   im = impermeable / total
+
+-   ag = agricole / total
+
+```{r fonction regroupement categories couverture sol}
+#' @param dt_oso 
+#'
+#' @returns dt_protoc_oso_modif un objet sf contenant les % des 23 catégories de couverture du sol & les % des categories de couverture du sol regroupees.
+#'
+#'
+
+func_regroupement_couv_oso_im_ag_sn = function(dt_oso) {
+  
+  # ajout des colonnes manquantes dans le df pour avoir toutes les catégories oso, même si les valeurs des cellules valent 0
+  categ_oso_not_in_dt_protoc_oso = oso_legend %>% 
+    filter(!label %in% colnames(dt_oso)) %>%
+    pull(label)
+  if (length(categ_oso_not_in_dt_protoc_oso) >= 1) {
+    dt_oso_toutes_colonnes = dt_oso
+    dt_oso_toutes_colonnes[, length(dt_oso):length(dt_oso) + length(categ_oso_not_in_dt_protoc_oso)] = 0
+    colnames(dt_oso_toutes_colonnes)[length(dt_oso):length(dt_oso) + length(categ_oso_not_in_dt_protoc_oso)] <- categ_oso_not_in_dt_protoc_oso
+    dt_oso = dt_oso_toutes_colonnes
+  }
+  
+  
+  dt_protoc_oso_modif <- dt_oso |>
+    mutate(
+      # formation de 3 classes
+      `semi-naturel` = eau + `forets de feuillus` + `forets de coniferes` + pelouses + `landes ligneuses` + `surfaces minérales` + `plages et dunes` + `glaciers ou neiges`,
+      impermeable = `batis denses` + `batis diffus` + `zones ind et com` + `surfaces routes` + serres,
+      agricole = colza + `cereales à pailles` + `protéagineux` + soja + tournesol + `maïs` + riz + `tubercules/racines` + vergers + vignes  + prairies,
+      total = `semi-naturel` + impermeable + agricole,
+      sn = `semi-naturel` / total,
+      im = impermeable / total,
+      ag = agricole / total,
+      
+      zone = case_when(
+        # Triangle interne (équilibre entre les trois)
+        sn >= 0.25 & sn <= 0.5 &
+          im >= 0.25 & im <= 0.5 &
+          ag >= 0.25 & ag <= 0.5 ~ "equilibre",
+        
+        # Mixte agricole + impermeable (semi-naturel faible)
+        ag >= 0.25 & ag <= 0.5 &
+          im >= 0.25 & im <= 0.5 &
+          sn < 0.25 ~ "mixte_agricole_impermeable",
+        
+        # Mixte agricole + semi-naturel (impermeable faible)
+        ag >= 0.25 & ag <= 0.5 &
+          sn >= 0.25 & sn <= 0.5 &
+          im < 0.25 ~ "mixte_agricole_seminaturel",
+        
+        # Mixte semi-naturel + impermeable (agricole faible)
+        sn >= 0.25 & sn <= 0.5 &
+          im >= 0.25 & im <= 0.5 &
+          ag < 0.25 ~ "mixte_impermeable_seminaturel",
+        
+        # Dominance classique
+        sn >= 0.5 ~ "dominance_semi_naturel",
+        im >= 0.5 ~ "dominance_impermeable",
+        ag >= 0.5 ~ "dominance_agricole",
+        
+        TRUE ~ "autre"
+      )
+    ) %>%
+    # on deselectionne PAS les colonnes contenant les proportions de couverture du sol
+    # select(session_id, date, user_id, user_pseudo, protocole, category, geometry, zone) %>%
+    rename(paysage_local = zone) %>%
+    filter(paysage_local != "autre") %>%
+    select(-oso_legend$label)
+  
+  
+  return(dt_protoc_oso_modif)
+  
+}
+
+# df final contenant les categories de couverture du sol pour florileges
+dt_protoc_oso = func_regroupement_couv_oso_im_ag_sn(dt_florileges_oso_WGS84)
+
+rm(oso_legend)
+rm(nodes)
+rm(xml_doc)
+```

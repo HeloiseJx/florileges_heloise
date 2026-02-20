@@ -10,3 +10,7 @@ library(jsonlite) # 1.8.9
 suppressWarnings(suppressMessages(library(plotly))) # 4.10.4
 suppressWarnings(suppressMessages(library(RMySQL))) # 0.10.29
 library(stringr) # 1.5.1
+library(tidyr)
+library(lubridate)
+library(sf)
+library(vegan)

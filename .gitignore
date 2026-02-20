@@ -6,3 +6,6 @@
 .env
 *.html
 *.rds
+/maps
+/out
+/data

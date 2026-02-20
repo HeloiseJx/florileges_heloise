@@ -1,0 +1,1262 @@
+---
+title: "restitution_flori_heloise"
+params:
+  structure_name: "EPT Plaine Commune"
+editor: visual
+format:
+  html:
+    toc: true
+    toc-location: left
+    sidebar: true
+    toc-title: "Sommaire"
+    toc-depth: 2
+    embed-resources: true
+execute:
+  echo: false
+  message : false
+  warning : false
+  error : false
+---
+
+*filtre général :*
+
+-   *filtrer les lignes où sum(taxon_count_Q...) == 0*
+
+-   *filtre tout le temps sauf en participation sur les espèces hors liste florilèges*
+
+```{r}
+# Variables constantes
+structure_name = params$structure_name
+```
+
+```{r}
+source("programs/library.R")
+source("programs/df_florileges.R")
+```
+
+# BIODIVERSITE
+
+## Chiffres clés
+
+```{r}
+nb_sp_liste = length(na.omit(unique(df_florileges_struct$taxon_nom_scientifique)))
+
+all_tax = unique(c(df_florileges_struct$taxon_combine))
+
+all_tax_liste = length(unique(c(df_florileges_struct$taxon[df_florileges_struct$taxon_liste_florilege == 1])) )
+```
+
+Nombre d'espèces : `r length(unique(all_tax))` espèces différentes vues, dont `r all_tax_liste` de la liste florilèges.
+
+**Nombre d'espèces de la liste florilèges observées :**
+
+```{r}
+gauge(value = nb_sp_liste, min = 0, max = 60)
+```
+
+**Camembert taxonomique des espèces observées**
+
+# Répartition des taxons vus
+
+```{r}
+df_sunburst <- data.frame()
+all_levels <- c("CLASSE", "FAMILLE")
+
+for (i in 2:length(all_levels)) {
+  temp <- df_obs_taxon %>%
+    group_by(across(all_levels[1:i])) %>%
+    summarise(nobs = sum(nobs), .groups = "drop") %>%
+    mutate(parent = .data[[all_levels[i - 1]]],
+           label = .data[[all_levels[i]]]) %>%
+    select(parent, label, nobs)
+  
+  df_sunburst <- bind_rows(df_sunburst, temp)
+}
+
+df_sunburst <- bind_rows(
+  data.frame(parent = "", label = "Equisetopsida", nobs = sum(df_obs_taxon$nobs)),
+  df_sunburst
+)
+```
+
+```{r}
+plot_ly(labels = df_sunburst$label,
+              parents = df_sunburst$parent,
+              values = df_sunburst$nobs,
+              type = 'sunburst',
+              branchvalues = 'total')
+```
+
+**Fréquences des espèces les plus observées**
+
+```{r}
+dt_freq_combi
+```
+
+**Richesse moyenne par participation :**
+
+Richesse moyenne par participation : `r round(riches_moy_local,1)` especes obtenues en moyenne à l'échelle de la structure. Sur l'emprise spatiale de la métropole du Grand Paris, `r round(riches_moy_ref,1)` espèces sont observées lors d'un passage.
+
+# PARTICIPATION
+
+## Chiffres clés
+
+```{r}
+nb_site_ref = length(unique(df_flori_ref$site_id))
+
+nb_saisisseur = length(unique(df_florileges_struct$user_id))
+
+```
+
+Nom de la structure : `r structure_name`
+
+Nom du site : à prévoir
+
+Nombre de saisisseurs : `r nb_saisisseur`
+
+Nom du système de comparaison : `r unique(df_flori_ref$NOM)`
+
+Nombre d'espaces verts dans le système de comparaison : `r nb_site_ref`
+
+```{r}
+df_site_tempo_line = df_florileges_struct %>%
+  mutate(session_year = as.integer(session_year)) %>%
+  arrange(session_date) %>%
+  select(site_id, site, session_year) %>%
+  unique() %>%
+  group_by(site_id, site) %>%
+  mutate(index = cur_group_id(),
+         index_y = index+cumsum(c(TRUE, diff(session_year) != 1)),
+         name = paste0(site_id, "_", str_sub(site, 1, 20)),
+         groupe = paste0(site_id, index_y)) %>%
+  arrange(session_year)
+
+df_site_point = df_site_tempo_line %>%
+  group_by(groupe) %>%
+  filter(session_year == min(session_year) | session_year == max(session_year)) %>%
+  ungroup()
+
+ggplot(df_site_tempo_line, aes(x = session_year, y = reorder(name, session_year) )) +
+    geom_line(aes(group = groupe), color = "#aa3839", linewidth = 0.6) +
+    geom_point(df_site_point, mapping = aes(x = session_year, y = name),
+               color = "#aa3839", size = 1.5) +
+    # scale_x_continuous(limits = c(min(as.integer(vec_limits_x), na.rm = T)-1,
+    #                               max(as.integer(vec_limits_x), na.rm = T)+1)) +
+    theme_minimal() + xlab("Années") + ylab("Sites")
+  
+```
+
+**Nombre moyen d'années de suivi des sites et données de référence**
+
+Nombre moyen d'années de suivi des sites localement : `r nb_moy_an_local` ans
+
+Nombre moyen d'années de suivi des sites à l'échelle Grand Paris : `r nb_moy_an_ref` ans
+
+**Nombre de participations par an**
+
+```{r}
+plot_nb_ses_an
+```
+
+**Poids des données dans le référentiel** Les sessions effectuées par la structure représentent `r poids` % des données de l'emprise de la métropole du Grand Paris.
+
+**Distribution des dates de passage par rapport à la référence ?**
+
+```{r}
+plot_pheno_participation
+```
+
+**Richesse cumulée**
+
+```{r}
+
+nb_moy_sess_ref = func_moy_nb_session(df_flori_ref)
+nb_moy_sp_ref = func_nb_moy_sp(df_flori_ref)
+
+dat = func_site_nbsession_nbsp(df_flori_ref)
+max_nb_sp_ref = max(dat$nb_sp)
+
+```
+
+En moyenne ce sont `r nb_moy_sp_ref` espèces qui sont observées sur les sites situés dans la Métropole du Grand Paris et `r nb_moy_sess_ref` sessions qui sont réalisées sur ces mêmes sites. Au maximum, `r max_nb_sp_ref` espèces ont été observées sur un même site de la métropole.
+
+**Richesse cumulée observée sur le site**
+
+```{r}
+dt_floril = df_florileges_struct %>% 
+  filter(taxon_liste_florilege == 1 & taxon_count_hors_quadrat == 0 )
+func_riches_cum_tt_protoc(dt_floril, titre = "Richesse cumulée en espèces")
+```
+
+# REFERENTIEL
+
+## construction des référentiels florilèges
+
+-   Cleaning --\> une session par an entre juin et septembre
+
+```{r}
+# CLEANING
+# fonction cleaning rapide des BD pour avoir des données protocolées --> sessions en été et une seule session par site
+
+func_dt_clean = function(df_flori) {
+  
+  # filtre sur les transects et années qui respectent le protocole --> filtre sur les dates de passage
+  # je filtre les sessions qui sont hors periode florilèges (juillet à septembre)
+dt1 = df_flori %>%
+  mutate(month = month(as.Date(session_date))) %>%
+  filter(month %in% c(6:9)) %>%
+  # filtre sur le nombre de sessions par an
+  group_by(site_id, session_year) %>%
+  mutate(nb_session = n_distinct(session_id)) %>%
+  ungroup()
+
+
+# s'il y a des sites avec plusieurs sessions en période protocole
+dt_avec_passages_en_trop = dt1 %>% filter(nb_session > 1)
+
+if (length(dt_avec_passages_en_trop$session_id ) > 0 ) {
+  
+# enlever les sessions en trop pour n'avoir qu'une session par site
+# je choisis de garder la session qui advient le plus tôt --> potentiellement encore une vegetation plus facile à identifier
+dt2 = dt1 %>%
+  filter(nb_session > 1) %>%
+  group_by(session_year, site_id) %>%
+  mutate(session_gardee = min(as.Date(session_date))) %>%
+  ungroup() %>%
+  filter(session_gardee == session_date) %>%
+  select(-session_gardee) %>%
+
+# cas où il y a une erreur de prise de notes cf site 1314 : 2 sessions le meme jour à la meme heure
+# --> on garde la sessions avec le plus de taxons observés
+  group_by(session_year, site_id, session_id) %>%
+  mutate(nb_indiv = sum(taxon_presence)) %>%
+  ungroup() %>%
+  group_by(site_id, session_year)%>%
+  filter(nb_indiv == max(nb_indiv)) %>%
+  select(-nb_indiv)
+  
+
+
+
+
+
+# on cree le df contenant les sites où il y avait déjà une seule session
+dt3 = dt1 %>%
+  filter(nb_session == 1)
+
+#le df final
+dt4_clean = rbind(dt2, dt3)
+
+} else {
+  dt4_clean = dt1
+}
+
+
+
+
+return(dt4_clean)  
+
+}
+
+dt_clean_plaineco = func_dt_clean(df_flori_ref)
+dt_clean_national = func_dt_clean(df_florileges)
+
+# df pour terrenv pour pourvoir contruire graphes
+dt_flori_terreenv = coord_epci %>% 
+  filter(str_detect(NOM, "Envol")) %>%
+  st_join(dt_protoc_oso) %>%
+  select(session_id) %>%
+  as.data.frame() %>%
+  left_join(df_florileges)
+           
+                                            
+dt_clean_terreenv = func_dt_clean(dt_flori_terreenv)
+
+
+```
+
+-   combinaison critère administratif ou region + paysage local
+
+Les différents filtres pour les référentiels :
+
+-   Métropole Grand Paris
+
+-   couverture imperméable
+
+-   Biogéorégions
+
+Au sujet du filtre "couverture imperméable" : Pour Le village des Médias : 60 % de couverture imperméable
+
+Pour le Village des athlètes : 80 % de couverture imperméable On prend un pourcentage de +- 15% en matière de couverture imperméable pour le filtre "couverture imperméable"
+
+Les combinaisons possibles de ces filtres :
+ 
+-   MGP + couverture
+
+-   MGP
+
+-   Biogéoregions + couverture
+
+```{r}
+# COMBINAISON REF
+# 1_import données
+
+# modif gp pour avoir les memes colonnes que biogeoreg
+gd_paris = coord_grand_paris %>%
+  rename(N_DOMAINE = NOM) %>%
+  mutate(CODE = "GP", DOMAINE_EU = 0) %>%
+  select(N_DOMAINE, CODE, DOMAINE_EU)
+
+# biogeoreg_avec_paris =  st_difference(biogeoregions, gd_paris) %>%
+#   select(CODE, N_DOMAINE, geometry) %>%
+#   bind_rows(gd_paris)
+ 
+
+
+
+
+
+# 2_combinaison
+dt_ref_MGP = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec gd_paris 
+  st_join(gd_paris) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+  filter(!is.na(N_DOMAINE)) %>%
+    
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, N_DOMAINE, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection des sites de la MGP
+  filter(N_DOMAINE == "Métropole du Grand Paris") %>%
+  mutate(referentiel = "2_MGP") %>%
+  mutate(nb_session = n_distinct(session_id))
+
+
+
+
+## VILLAGE DES ATHLETES 
+
+
+# u15_VA ----
+dt_ref_u15_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select( session_id, user_id) %>% 
+  unique() %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+   # select(-geometry) %>%
+  select(session_id, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.95 & im >= 0.65) %>%
+  mutate(referentiel = "6_u15") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+# u10_VA ----
+dt_ref_u10_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(session_id, user_id) %>%
+  unique() %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.9 & im >= 0.7) %>%
+  mutate(referentiel = "3_u10") %>%
+  mutate(nb_session = n_distinct(session_id))
+
+
+# u15_MGP_VA ----
+dt_ref_u15_MGP_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+  
+  # jointure avec gd paris
+  st_join(gd_paris) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+  filter(!is.na(N_DOMAINE)) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.95 & im >= 0.65) %>%
+  mutate(referentiel = "4_u15_MGP") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+# u10_biogeo_VA ----
+dt_ref_u10_biogeo_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec biogeoregions 
+  st_join(biogeoregions) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  
+  # selection des sites de la biogeoregion
+  filter(N_DOMAINE == "atlantique (ATL)") %>%
+  
+  # sessions clean
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.9 & im >= 0.7)%>%
+  mutate(referentiel = "2_u10_biogeo")%>%
+  mutate(nb_session = n_distinct(session_id))
+
+
+# u15_biogeo_VA ----
+dt_ref_u15_biogeo_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec biogeoregions 
+  st_join(biogeoregions) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  
+  # selection des sites de la biogeoregion
+  filter(N_DOMAINE == "atlantique (ATL)") %>%
+  
+  # sessions clean
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.95 & im >= 0.65)%>%
+  mutate(referentiel = "5_u15_biogeo")%>%
+  mutate(nb_session = n_distinct(session_id))
+
+
+
+# u10_MGP_VA ----
+dt_ref_u10_MGP_VA = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec gd paris
+  st_join(gd_paris) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+  filter(!is.na(N_DOMAINE)) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 65% et 95%
+  filter(im <= 0.9 & im >= 0.7) %>%
+  mutate(referentiel = "1_u10_MGP") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+
+
+
+# dt_ref_u15_biogeo_VA = 
+#   #jointure avec table de coordonnées nationale df_flori_national_coord
+#   df_flori_national_coord %>%
+#   filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+#   as.data.frame() %>%
+#   left_join(dt_clean_national) %>%
+#   select(-site_geometry) %>%
+#   st_as_sf() %>%
+# 
+#   # jointure avec biogeoregions 
+#   st_join(biogeoregions) %>%
+#   as.data.frame() %>%
+#   select(session_id, N_DOMAINE) %>%
+#     
+#   # jointure avec le paysage local
+#   left_join(dt_protoc_oso)  %>%
+#   # select(-geometry) %>%
+#   select(session_id, N_DOMAINE, im) %>%
+#   unique() %>%
+#   
+#   # sessions clean
+#   left_join(dt_clean_national) %>%
+#   
+#     # selection des sites de la MGP
+#   filter(N_DOMAINE == "atlantique (ATL)") %>%
+#   
+#   select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+#   filter(taxon_liste_florilege == 1) %>%
+#   
+# 
+#   # selection sites dont l'urbanisation est comprise entre 65% et 95%
+#   filter(im <= 0.9 & im >= 0.7)%>%
+#   mutate(referentiel = "5_u15_biogeo")%>%
+#   mutate(nb_session = n_distinct(session_id))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## VILLAGE DES MEDIAS ####
+
+# u15_VM ----
+dt_ref_u15_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(session_id, user_id) %>%
+  unique() %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.75 & im >= 0.45) %>%
+  mutate(referentiel = "6_u15") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+# u10_VM ----
+dt_ref_u10_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(session_id, user_id) %>%
+  unique() %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.7 & im >= 0.5) %>%
+  mutate(referentiel = "3_u10") %>%
+  mutate(nb_session = n_distinct(session_id))
+
+
+
+
+# u15_MGP_VM ----
+dt_ref_u15_MGP_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec gd paris
+  st_join(gd_paris) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+  filter(!is.na(N_DOMAINE)) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.75 & im >= 0.45) %>%
+  mutate(referentiel = "4_u15_MGP") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+
+
+# u15_biogeo_VM ----
+dt_ref_u15_biogeo_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec biogeoregions 
+  st_join(biogeoregions) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  
+    # selection des sites de la MGP
+  filter(N_DOMAINE == "atlantique (ATL)") %>%
+  
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.75 & im >= 0.45) %>%
+  mutate(referentiel = "5_u15_biogeo") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+# u10_MGP_VM ----
+dt_ref_u10_MGP_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec gd paris
+  st_join(gd_paris) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+  filter(!is.na(N_DOMAINE)) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.7 & im >= 0.5) %>%
+  mutate(referentiel = "1_u10_MGP") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+
+
+# u10_biogeo_VM ----
+dt_ref_u10_biogeo_VM = 
+  #jointure avec table de coordonnées nationale df_flori_national_coord
+  df_flori_national_coord %>%
+  filter(session_id %in% unique(dt_clean_national$session_id)) %>%
+  as.data.frame() %>%
+  left_join(dt_clean_national) %>%
+  select(-site_geometry) %>%
+  st_as_sf() %>%
+
+  # jointure avec biogeoregions 
+  st_join(biogeoregions) %>%
+  as.data.frame() %>%
+  select(session_id, N_DOMAINE) %>%
+    
+  # jointure avec le paysage local
+  left_join(dt_protoc_oso)  %>%
+  # select(-geometry) %>%
+  select(session_id, N_DOMAINE, im) %>%
+  unique() %>%
+  
+  # sessions clean
+  left_join(dt_clean_national) %>%
+    # selection des sites de la MGP
+  filter(N_DOMAINE == "atlantique (ATL)") %>%
+  
+  select(site_id, site, session_id, im, taxon, taxon_presence, taxon_liste_florilege, session_year) %>%
+  filter(taxon_liste_florilege == 1) %>%
+  
+
+  # selection sites dont l'urbanisation est comprise entre 45% et 75%
+  filter(im <= 0.7 & im >= 0.5) %>%
+  mutate(referentiel = "2_u10_biogeo") %>%
+  mutate(nb_session = n_distinct(session_id))
+  
+
+
+
+```
+
+taille des référentiels
+
+```{r}
+
+bind_VA = dt_ref_u10_biogeo_VA %>%
+  bind_rows(dt_ref_u10_MGP_VA) %>%
+  bind_rows(dt_ref_u10_VA) %>% 
+  bind_rows(dt_ref_u15_biogeo_VA) %>%
+  bind_rows(dt_ref_u15_MGP_VA) %>%
+  bind_rows(dt_ref_u15_VA) %>%
+  select(nb_session, referentiel) %>% 
+  unique()
+
+bind_VM = dt_ref_u10_biogeo_VM %>%
+  bind_rows(dt_ref_u10_MGP_VM) %>%
+  bind_rows(dt_ref_u10_VM) %>% 
+  bind_rows(dt_ref_u15_biogeo_VM) %>%
+  bind_rows(dt_ref_u15_MGP_VM) %>%
+  bind_rows(dt_ref_u15_VM) %>%
+  select(nb_session, referentiel) %>% 
+  unique()
+
+ggplot(bind_VA, aes(x = referentiel, y = nb_session, fill = referentiel)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  labs(title = "Référentiels pour le Village des Athlètes",
+       y = "nombre de sessions")+
+   theme_minimal() +
+  theme(legend.position = "none")
+ 
+
+
+ggplot(bind_VM, aes(x = referentiel, y = nb_session, fill = referentiel)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  labs(title = "Référentiels pour le Village des Médias",
+       y = "nombre de sessions") +
+  theme_minimal()+
+  theme(legend.position = "none")
+
+
+
+
+
+```
+
+## Exemples d'utilisation des référentiels :
+
+choix d'un site florilèges à Plaine Commune = site 1416 = Square Daniel Féry - Saint-Denis
+
+```{r}
+df_flori_site = df_florileges_struct %>%
+  filter(site_id == 1416)
+
+df_flori_site_clean = func_dt_clean(df_flori_site)
+
+```
+
+### Boxplot
+
+Boxplot représentant les richesse moyennes annuelles observées sur les sites des différents référentiels
+
+```{r}
+# df site pour le bind_rows
+temp = df_flori_site_clean %>%
+  mutate(referentiel = "0_site") %>%
+  select(session_id, site_id, site, taxon, taxon_presence, taxon_liste_florilege, referentiel)
+
+
+bind_VA_riches = dt_ref_u10_biogeo_VA %>%
+  bind_rows(dt_ref_u10_MGP_VA) %>%
+  bind_rows(dt_ref_u10_VA) %>% 
+  bind_rows(dt_ref_u15_biogeo_VA) %>%
+  bind_rows(dt_ref_u15_MGP_VA) %>%
+  bind_rows(dt_ref_u15_VA) %>%
+  select(session_id, site_id, site, taxon, taxon_presence, taxon_liste_florilege , referentiel) %>%
+  bind_rows(temp) %>%
+  # filtre et clean
+  filter(taxon_liste_florilege == 1) %>%
+  unique() %>%
+  # calcul richesse par session --> garder les sessions ou 0 plantes de la liste obs
+  mutate(taxon_obs = case_when(taxon_presence == 0 ~ 0,
+                               TRUE ~ 1)) %>%
+  group_by(session_id, site_id, site, referentiel) %>%
+  reframe(richesse = sum(taxon_obs)) %>%
+  ungroup()
+
+# label avec nombre de sessions par boxplot
+pos_label_riches_VA = bind_VA_riches %>%
+  left_join(bind_VA) %>%
+  group_by(referentiel, nb_session) %>%
+  summarise(
+     y_pos_riches = max(richesse) + 0.5
+  ) %>%
+  ungroup()
+
+
+ggplot(bind_VA_riches, aes(x = referentiel, y = richesse, fill = referentiel)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Richesse en espèces - référentiel Village des Athlètes",
+       y = "richesse en espèces", 
+       x = "") +
+  geom_text(data = pos_label_riches_VA,
+            aes(y = y_pos_riches,
+                x = referentiel,
+            label = paste0(nb_session, " session(s)")),
+            vjust = 0,
+            size = 3) +
+  theme(legend.position = "none")
+
+
+
+
+
+
+
+
+bind_VM_riches = dt_ref_u10_biogeo_VM %>%
+  bind_rows(dt_ref_u10_MGP_VM) %>%
+  bind_rows(dt_ref_u10_VM) %>% 
+  bind_rows(dt_ref_u15_biogeo_VM) %>%
+  bind_rows(dt_ref_u15_MGP_VM) %>%
+  bind_rows(dt_ref_u15_VM) %>%
+  select(session_id, site_id, site, taxon, taxon_presence, taxon_liste_florilege , referentiel) %>%
+  bind_rows(temp) %>%
+  # filtre et clean
+  filter(taxon_liste_florilege == 1) %>%
+  unique() %>%
+  # calcul richesse par session --> garder les sessions ou 0 plantes de la liste obs
+  mutate(taxon_obs = case_when(taxon_presence == 0 ~ 0,
+                               TRUE ~ 1)) %>%
+  group_by(session_id, site_id, site, referentiel) %>%
+  reframe(richesse = sum(taxon_obs)) %>%
+  ungroup()
+
+# label avec nombre de sessions par boxplot
+pos_label_riches_VM = bind_VM_riches %>%
+  left_join(bind_VM) %>%
+  group_by(referentiel, nb_session) %>%
+  summarise(
+     y_pos_riches = max(richesse) + 0.5
+  ) %>%
+  ungroup()
+
+ggplot(bind_VM_riches, aes(x = referentiel, y = richesse, fill = referentiel)) +
+  geom_boxplot() +
+  theme_minimal() + 
+  geom_text(data = pos_label_riches_VM,
+            aes(y = y_pos_riches,
+                x = referentiel,
+            label = paste0(nb_session, " session(s)")),
+            vjust = 0,
+            size = 3) +
+  labs(title = "Richesse en espèces - référentiel Village des Médias",
+       y = "richesse en espèces", 
+       x = "") +
+  theme(legend.position = "none")
+
+
+```
+
+### graphes d'évolution
+
+Pour florilèges, les indicateurs pertinents poursuivre l'évolution de la communauté sont : la richesse spécifique (peut-être les fréquences ? et Shannon ?)
+
+```{r}
+# calcul de la richesse totale annuelle = nombre de taxons différents observés en une année 
+func_evol_riches = function(df_protocole) {
+  dt_evol = df_protocole %>%
+    
+  # pour le calcul de richesse florileges : je compte les espèces du protocole
+  filter(taxon_liste_florilege == 1) %>%
+    
+    # (a priori pas utile car dans BD florilèges pas de mention des taxons de la liste lorsque ceux ci ne sont pas observés --> à verifier )
+  mutate(taxon_present = case_when(taxon_presence == 0 ~ 0,
+                                   TRUE ~ 1)) %>%
+  filter(taxon_present != 0) %>%
+
+  # calcul de la richesse par session en taxons (normalement une session par an)
+  group_by(session_id) %>%
+  mutate(riches_tot_an = sum(taxon_present), 
+         nb_indiv = sum(taxon_presence),
+         freq_sp = taxon_presence / nb_indiv,
+         shannon = - sum(freq_sp * log(freq_sp))) %>%
+  ungroup() %>%
+
+  
+  select(site_id, session_year, riches_tot_an, shannon) %>%
+  unique() 
+  
+  return(dt_evol)
+  
+}
+
+
+dt_evol_riches_plaineco = func_evol_riches(dt_clean_plaineco)
+dt_evol_riches_siteVA = func_evol_riches(df_flori_site_clean)
+
+# choix referentiel le plus fin avec plus de 30 sessions pour le VA
+dt_evol_riches_ref_u10_MGP_VA = func_evol_riches(dt_ref_u10_MGP_VA)
+
+# un transect des plaine co vs référentiel u10_MGP_VA
+# plot_evol_riches_transect_ref_VA = #  
+ ggplot(dt_evol_riches_ref_u10_MGP_VA,
+  aes(x = session_year, y = riches_tot_an, color = factor(site_id), group = site_id)) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  scale_y_continuous(limits = c(0, 40)) +
+  theme_minimal() +
+  labs(
+    y = "Richesse spécifique totale",
+    x = "Année",
+    title = "Nombre d'espèces observées par transect annuellement") +
+  theme(legend.position = "none")
+
+ 
+# Pour le référentiel le plus fin associé au site du VM 
+dt_evol_riches_ref_u10_biogeo_VM = func_evol_riches(dt_ref_u10_biogeo_VM)
+# Pour terre d'envol qui est considéré être un transect simple
+dt_evol_riches_terrenv = func_evol_riches(dt_clean_terreenv) # (factuellement c'est un seul site : le 835)
+
+# plot_evol_riches_transect_ref_VM = #  
+ ggplot(dt_evol_riches_ref_u10_biogeo_VM,
+  aes(x = session_year, y = riches_tot_an, color = factor(site_id), group = site_id)) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  scale_y_continuous(limits = c(0, 40)) +
+  theme_minimal() +
+  labs(
+    y = "Richesse spécifique totale",
+    x = "Année",
+    title = "Nombre d'espèces observées par transect annuellement") +
+  theme(legend.position = "none")
+
+
+ 
+ 
+
+```
+
+```{r}
+# calcul d'indices de turn-over des communautés
+# 
+# mat_abond <- dt_evol_riches_ref_MGP80 %>%
+#   select(site_id, session_year, taxon, taxon_presence) %>%
+#   mutate(site_an = paste(site_id, session_year, sep = "_")) %>%  # identifiant unique par site-année
+#   select(site_an, taxon, taxon_presence) %>%
+#   pivot_wider(
+#     names_from = taxon,
+#     values_from = taxon_presence,
+#     values_fill  = list(value = 0))
+# 
+# 
+# 
+# rownames(mat_abond) = mat_abond$site_an
+# 
+# library(purrr)
+# mat_abond_clean = mat_abond %>% 
+#   select(-site_an) %>%   # met site_an en rownames
+#   mutate(across(everything(), ~ map_dbl(.x, function(x) {
+#     if (is.null(x)) return(0)   # remplace NULL par 0
+#     as.numeric(x[1])             # prend la première valeur si vecteur
+#   }))) %>%
+#   mutate(across(everything(), ~ as.numeric(unlist(.x)))) %>%  # transforme list en numeric
+#   as.matrix()
+#   
+# 
+# turnover_temps <- vegdist(mat_abond_clean[1:2, ], method = "jaccard", binary = TRUE)
+# "red"
+
+
+
+```
+
+
+#### evolution VA
+
+```{r}
+
+
+# référentiel : données protocolées, sur les prairies urbaines de la MGP
+# dt_ref_MGP_urbain_prairie
+
+dt_evol_ref_VA = 
+  dt_evol_riches_ref_u10_MGP_VA %>%
+  # filtre sur le nombre de transects par année : pour faire une moyenne annuelle de valeurs pour le référentiel, je veux qu'il y ait les données d'au moins 5 transects par an :
+  group_by(session_year) %>%
+  mutate(nb_transect_an = n_distinct(site_id)) %>%
+  ungroup() %>%
+  filter(nb_transect_an > 9) %>%
+  
+  mutate(echelle = "referentiel") %>% 
+  group_by(session_year) %>%
+  # moyenner les valeur de richesse et freqance par année pour tous les transects
+  #--> avoir un seul chiffre pour le référentiel
+  mutate(
+  # freq_moy_an_inter = mean(freq),
+  #        freq_Q1 = quantile(freq, 0.25), 
+  #        freq_Q3 = quantile(freq, 0.75),
+  #        freq_median = quantile(freq, 0.5),
+         moy_riches_tot_inter = mean(riches_tot_an),
+         riches_Q1 = quantile(riches_tot_an, 0.25), 
+         riches_Q3 = quantile(riches_tot_an, 0.75),
+         riches_median = quantile(riches_tot_an, 0.5),
+         nb_transect = n_distinct(site_id),
+         shannon_moy_an_inter = mean(shannon),
+         shannon_Q1 = quantile(shannon, 0.25), 
+         shannon_Q3 = quantile(shannon, 0.75),
+         shannon_median = quantile(shannon, 0.5)
+         ) %>%
+  ungroup() %>%
+  # on enlève les années pour lesquelles il y a moins de 5 transects 
+  # filter(nb_transect > 4) %>%
+  select(echelle, moy_riches_tot_inter, riches_Q1, riches_Q3, riches_median, shannon_moy_an_inter, shannon_Q1, shannon_Q3, shannon_median, session_year) %>%
+  unique() %>%
+  mutate(session_year = as.numeric(session_year))
+
+
+# plot_evol_richesse_site_ref = 
+  ggplot() +
+
+    # ref
+  geom_point(data = dt_evol_ref_VA, aes(x = session_year, y = riches_median), color = "#11C2B5FF", size =3) +
+  geom_line(data = dt_evol_ref_VA, aes(x = session_year, y = riches_median), color = "#11C2B5FF", size = 1) +
+    # quartile ref
+  geom_ribbon(
+    data = dt_evol_ref_VA,         # tableau de quartiles
+    aes(x = session_year, ymin = riches_Q1, ymax = riches_Q3),
+    fill = "#72E1E1FF", alpha = 0.3
+  ) +
+        #local
+  geom_point(data = dt_evol_riches_siteVA, aes(x = as.numeric(session_year), y = riches_tot_an), color = "#F76E5EFF", size =3) +
+  geom_line(data = dt_evol_riches_siteVA, aes(x = as.numeric(session_year), y = riches_tot_an), color = "#F76E5EFF",size = 1) +
+  
+  scale_y_continuous(limits = c(0, 20)) +
+  theme_minimal() +
+  labs(y = "richesse spécifique totale", x = "année", title =  "Nombre d'espèces observées par site annuellement - VA") +
+  theme(legend.position = "none")
+  
+  
+
+
+
+# plot_evol_shannon_site_ref = 
+  ggplot() +
+
+    # ref
+  geom_point(data = dt_evol_ref_VA, aes(x = session_year, y = shannon_median), color = "#11C2B5FF", size =3) +
+  geom_line(data = dt_evol_ref_VA, aes(x = session_year, y = shannon_median), color = "#11C2B5FF", size = 1) +
+    # quartile ref
+  geom_ribbon(
+    data = dt_evol_ref_VA,         # tableau de quartiles
+    aes(x = session_year, ymin = shannon_Q1, ymax = shannon_Q3),
+    fill = "#72E1E1FF", alpha = 0.3
+  ) +
+        #local
+  geom_point(data = dt_evol_riches_siteVA, aes(x = as.numeric(session_year), y = shannon), color = "#F76E5EFF", size =3) +
+  geom_line(data = dt_evol_riches_siteVA, aes(x = as.numeric(session_year), y = shannon), color = "#F76E5EFF",size = 1) +
+  
+  scale_y_continuous(limits = c(0, 5)) +
+  theme_minimal() +
+  labs(y = "shannon spécifique totale", x = "année", title =  "Evolution indice de Shannon au cours du temps \n structure de la communauté --> renseigne si une espèce domine ou si \n la composition est homogène entre les espèces") +
+  theme(legend.position = "none")
+
+# evolution de la communauté --> turnover
+
+```
+
+
+
+#### evolution VM
+```{r}
+
+
+# référentiel : données protocolées, sur les prairies urbaines de la MGP
+# dt_ref_MGP_urbain_prairie
+
+dt_evol_ref_VM = 
+  dt_evol_riches_ref_u10_biogeo_VM %>%
+  # filtre sur le nombre de transects par année : pour faire une moyenne annuelle de valeurs pour le référentiel, je veux qu'il y ait les données d'au moins 3 transects par an :
+  group_by(session_year) %>%
+  mutate(nb_transect_an = n_distinct(site_id)) %>%
+  ungroup() %>%
+  filter(nb_transect_an > 9) %>%
+  
+  mutate(echelle = "referentiel") %>% 
+  group_by(session_year) %>%
+  # moyenner les valeur de richesse et freqance par année pour tous les transects
+  #--> avoir un seul chiffre pour le référentiel
+  mutate(
+  # freq_moy_an_inter = mean(freq),
+  #        freq_Q1 = quantile(freq, 0.25), 
+  #        freq_Q3 = quantile(freq, 0.75),
+  #        freq_median = quantile(freq, 0.5),
+         moy_riches_tot_inter = mean(riches_tot_an),
+         riches_Q1 = quantile(riches_tot_an, 0.25), 
+         riches_Q3 = quantile(riches_tot_an, 0.75),
+         riches_median = quantile(riches_tot_an, 0.5),
+         nb_transect = n_distinct(site_id),
+         shannon_moy_an_inter = mean(shannon),
+         shannon_Q1 = quantile(shannon, 0.25), 
+         shannon_Q3 = quantile(shannon, 0.75),
+         shannon_median = quantile(shannon, 0.5)
+         ) %>%
+  ungroup() %>%
+  # on enlève les années pour lesquelles il y a moins de 5 transects 
+  # filter(nb_transect > 9) %>%
+  select(echelle, moy_riches_tot_inter, riches_Q1, riches_Q3, riches_median, shannon_moy_an_inter, shannon_Q1, shannon_Q3, shannon_median, session_year) %>%
+  unique() %>%
+  mutate(session_year = as.numeric(session_year))
+
+
+# plot_evol_richesse_site_ref = 
+  ggplot() +
+
+    # ref
+  geom_point(data = dt_evol_ref_VM, aes(x = session_year, y = riches_median), color = "#11C2B5FF", size =3) +
+  geom_line(data = dt_evol_ref_VM, aes(x = session_year, y = riches_median), color = "#11C2B5FF", size = 1) +
+    # quartile ref
+  geom_ribbon(
+    data = dt_evol_ref_VM,         # tableau de quartiles
+    aes(x = session_year, ymin = riches_Q1, ymax = riches_Q3),
+    fill = "#72E1E1FF", alpha = 0.3
+  ) +
+        #local
+  geom_point(data = dt_evol_riches_terrenv, aes(x = as.numeric(session_year), y = riches_tot_an), color = "#F76E5EFF", size =3) +
+  geom_line(data = dt_evol_riches_terrenv, aes(x = as.numeric(session_year), y = riches_tot_an), color = "#F76E5EFF",size = 1) +
+  
+  scale_y_continuous(limits = c(0, 20)) +
+  theme_minimal() +
+  labs(y = "richesse spécifique totale", x = "année", title =  "Nombre d'espèces observées par site annuellement - VM") +
+  theme(legend.position = "none")
+  
+  
+
+
+
+# plot_evol_shannon_site_ref = 
+  ggplot() +
+
+    # ref
+  geom_point(data = dt_evol_ref_VM, aes(x = session_year, y = shannon_median), color = "#11C2B5FF", size =3) +
+  geom_line(data = dt_evol_ref_VM, aes(x = session_year, y = shannon_median), color = "#11C2B5FF", size = 1) +
+    # quartile ref
+  geom_ribbon(
+    data = dt_evol_ref_VM,         # tableau de quartiles
+    aes(x = session_year, ymin = shannon_Q1, ymax = shannon_Q3),
+    fill = "#72E1E1FF", alpha = 0.3
+  ) +
+        #local
+  geom_point(data = dt_evol_riches_terrenv, aes(x = as.numeric(session_year), y = shannon), color = "#F76E5EFF", size =3) +
+  geom_line(data = dt_evol_riches_terrenv, aes(x = as.numeric(session_year), y = shannon), color = "#F76E5EFF",size = 1) +
+  
+  scale_y_continuous(limits = c(0, 5)) +
+  theme_minimal() +
+  labs(y = "shannon spécifique totale", x = "année", title =  "Evolution indice de Shannon au cours du temps \n structure de la communauté --> renseigne si une espèce domine ou si \n la composition est homogène entre les espèces") +
+  theme(legend.position = "none")
+
+# evolution de la communauté --> turnover
+
+```
