@@ -1,5 +1,5 @@
 ---
-title: "V2_maquette_florileges"
+title: "V2_tous_indic_florileges"
 editor: visual
 
 format:
@@ -40,7 +40,6 @@ library(lubridate)
 library(sf)
 library(vegan)
 library(readxl)
-library(patchwork)
 ```
 
 ## Jeux de données externes
@@ -58,8 +57,6 @@ Import des jeux de données externes permettant la constitution des référentie
 -   Coordonnées plaine Nature
 
 -   Coordonnées 1001 Voisins
-
--   Offre en nectar des plantes de la liste florilèges
 
 ### Intercommunalités
 
@@ -156,19 +153,6 @@ coord_1001_voisins = st_read(
 
 ```
 
-
-### Offre en nectar
-
-```{r}
-nectar = read_xlsx("C:/Git/florileges code gabriel/Nectar_Dispersion.xlsx") %>%
-  mutate(taxon_nom_scientifique = str_extract(`Nom Espèce`, "^\\S+\\s+\\S+")) %>% 
-  select(taxon_nom_scientifique, Nectar) %>%
-  mutate(Nectar = as.numeric(Nectar))
-```
-
-
-
-
 ## Import des données florilèges
 
 ### df_florileges = données florileges
@@ -177,7 +161,19 @@ Récupération de l'export à plat florilèges à partir des données mosaic :
 
 ```{r import des donnees florileges de la BD MOSAIC}
 
-source(here::here("programs", "requete_florileges.R"))
+df_florileges = readRDS(here::here("data/rdata/dt_florileges_tot_2025_05_19.rds"))
+
+df_florileges = df_florileges %>%
+  filter(session_date >= "2000-01-01") %>%
+  mutate(across(starts_with("taxon_count_"), as.integer)) %>%
+  mutate(session_year = as.numeric(year(as.Date(session_date))),
+         session_year_factor_all = factor(session_year, levels = as.character(min(session_year, na.rm = T):max(session_year, na.rm = T))),
+         taxon_presence = rowSums(select(., starts_with("taxon_count_Q")), na.rm=TRUE), # compter le nb d'occurence des sp
+         taxon_presence_all = rowSums(select(., starts_with("taxon_count_")), na.rm=TRUE), # considération sp hors quadrat
+         taxon_combine = if_else(is.na(taxon_nom_scientifique), taxon, taxon_nom_scientifique)) %>%
+  filter(taxon_combine != "null")# %>% 
+  # filter(taxon_presence > 0) # je ne filtre pas les sessions où il n'y a pas de plantes de la liste relevées --> même si en pratique il n'y a pas de session dans une plante de la liste
+
 
 DT::datatable(head(df_florileges))
 ```
@@ -311,7 +307,7 @@ Comme il n'y a pas encore de site sur les sites SOLIDEO, ceux-ci viennent comble
 
 ```{r donnee de remplacement vm}
 df_florileges_VM = df_florileges %>% 
-  filter(site_id == 645) 
+  filter(site_id == 678) 
 ```
 
 # CALCUL DU REFERENTIEL
@@ -810,8 +806,6 @@ df_VM = func_sel_referentiel(df_florileges_site = df_florileges_VM, bind_all_sit
 DT::datatable(head(df_VA))
 ```
 
-
-
 ### dt_ref_VA et dt_ref_VM
 
 ```{r dt de reference pour les sites}
@@ -834,7 +828,6 @@ DT::datatable(head(dt_ref_VA))
 
 ```
 
-
 ### df_VA et df_VM
 
 ```{r ajout colonne richesse par session pour les sessions locales}
@@ -853,18 +846,80 @@ df_VM = df_VM %>%
   mutate(nb_sp_session = sum(presence_sp)) %>%
   ungroup()
 
-DT::datatable(df_VA)
 
 ```
 
-# INDICATEURS - V2
+# INDICATEURS
+
+## fréquence d'espèces \~ abondance
+
+Ces fréquences correspondent au nombre de quadrats dans lesquels les taxons sont observés. On pourrait aussi dire qu'il s'agit d'un proxy d'abondance.
+
+```{r}
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
+
+func_freq_sp = function(dt_flori) {
+  nb_tot_quadrats = 10*n_distinct(dt_flori$session_id)
+  
+  df_freq = dt_flori %>%
+    filter(taxon_liste_florilege == 1) %>%
+    select(session_id, observation_id, taxon, taxon_nom_scientifique, taxon_count_Q1, taxon_count_Q2,taxon_count_Q3,taxon_count_Q4,
+           taxon_count_Q5,taxon_count_Q6,taxon_count_Q7,taxon_count_Q8,
+           taxon_count_Q9,taxon_count_Q10) %>%
+    group_by(observation_id) %>%
+    mutate(somme = sum(taxon_count_Q1, taxon_count_Q2,taxon_count_Q3,taxon_count_Q4,
+                       taxon_count_Q5,taxon_count_Q6,taxon_count_Q7,taxon_count_Q8,
+                       taxon_count_Q9,taxon_count_Q10)) %>%
+    ungroup() %>%
+    group_by(taxon, taxon_nom_scientifique) %>%
+    reframe(freq_recouvrement = mean(somme),   # en moyenne lorsque le taxon est observé, *
+            #est-il observé en simultané sur plusieurs quadrats ou plutôt de façon isolée ?
+            freq_quadrats = 100 * sum(somme)/nb_tot_quadrats) %>% # fréquence en abondance --> sur le nombre de quadrats analysés localement, sur combien a t-on trouvé le taxon ?
+    ungroup()
+  
+  return(df_freq)
+}
+
+
+
+
+dt_freq_local = func_freq_sp(df_VA) %>%
+  mutate(echelle = "local") %>%
+  arrange(desc(freq_quadrats)) %>%
+  slice_head(n = 5)
+
+dt_freq_ref = func_freq_sp(dt_ref_VA) %>%
+  mutate(echelle = "ref") %>%
+  filter(taxon %in% dt_freq_local$taxon)
+
+
+# dt_freq_combi =
+  dt_freq_local %>%
+  bind_rows(dt_freq_ref) %>%
+  ggplot(aes(x = taxon, y = freq_quadrats, fill = echelle)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.6) +
+  coord_flip() +
+  theme_minimal() +
+  ylab("% de quadrats dans lesquels l'espèce est présente") +
+  xlab("espèces")
+
+
+
+
+DT::datatable(head(dt_freq_local))
+DT::datatable(head(dt_freq_ref))
+
+```
 
 ## Occurence des espèces
 
 Ces fréquences correspondent à la part de sessions pour lesquelles le taxon est observé, i.e. la probabilité d'observer le taxon.
 
-
 ```{r}
+
+
 func_freq_sp = function(dt_flori) {
   
   df_freq = dt_flori %>%
@@ -880,151 +935,255 @@ func_freq_sp = function(dt_flori) {
   
   return(df_freq)
 }
-```
 
 
-```{r}
-# je modifie les tables pour avoir le même nombre de lignes et le même ordre dans l'affichage
 
 
-dt_freq_site_temp = func_freq_sp(dt_flori = df_VM) %>%
-  arrange(desc(freq_taxon)) %>%
-  mutate(ordre = row_number())
+dt_freq_local = func_freq_sp(dt_flori = df_VM) %>%
+  mutate(echelle = "local") %>%
+  arrange(desc(freq_taxon))
 
 dt_freq_ref = func_freq_sp(dt_flori = dt_ref_VM) %>%
-  left_join(dt_freq_site_temp %>% select(taxon, ordre)) %>%
-  arrange(desc(freq_taxon)) %>%
-  mutate(ordre = case_when(is.na(ordre) ~ row_number() + length(unique(dt_freq_site_temp$taxon)),
-                           TRUE ~ ordre))
+  mutate(echelle = case_when(taxon %in% dt_freq_local$taxon ~ "observé aussi sur le site", 
+                             TRUE ~ "observé dans le référentiel"))%>%
+  arrange(desc(freq_taxon))
 
-dt_freq_site = dt_freq_site_temp %>%
-  bind_rows(dt_freq_ref %>% select(taxon, ordre) %>% filter(! taxon %in% dt_freq_site_temp$taxon)) %>%
-  mutate(freq_taxon = replace_na(freq_taxon, 0))
 
-# Graphiques
-plot_site = dt_freq_site %>%
-  ggplot(aes(x = reorder(taxon, - ordre), y = freq_taxon)) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.6, fill = "#F76E5EFF") +
+
+DT::datatable(head(dt_freq_local))
+DT::datatable(head(dt_freq_ref))
+
+```
+
+```{r graphes frequence taxons}
+
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
+dt_freq_local%>%
+  ggplot(aes(x = reorder(taxon, freq_taxon), y = freq_taxon, fill = echelle)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.6) +
   coord_flip() +
   theme_minimal() +
   ylab("% de sessions pour lesquelles l'espèce est présente") +
   xlab("espèces")+
     scale_y_continuous(limits = c(0,  100)) +
-      theme(axis.text.y = element_text(size = 6)) +
-  theme(legend.position = "none") +
-  labs(title = "site") 
+  scale_fill_manual(values = c("local" = "blue"))
 
-plot_ref = dt_freq_ref %>%
-  ggplot(aes(x = reorder(taxon, -ordre), y = freq_taxon)) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.6, fill = "#11C2B5FF") +
+
+# dt_freq_combi =
+  dt_freq_ref %>%
+  ggplot(aes(x = reorder(taxon, freq_taxon), y = freq_taxon, fill = echelle)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.6) +
   coord_flip() +
   theme_minimal() +
+  ylab("% de sessions pour lesquelles l'espèce est présente") +
+  xlab("espèces") +
     scale_y_continuous(limits = c(0,  100)) +
     theme(axis.text.y = element_text(size = 6)) +
-    theme(legend.position = "none") +
-    labs(title = "référence", 
-         y = "", x = "")
+    scale_fill_manual(values = c("observé aussi sur le site" = "blue", 
+                             "observé dans le référentiel" = "grey"))
 
-plot_combi = plot_site + plot_ref
-plot_combi
+
+
 ```
 
+## Evolution de la richesse en espèces
 
-## score d'offre en nectar du site : diagramme radar V2
+Nombre d'espèces observées lors d'un relevé florilèges
 
-On cherche à faire une jauge allant de 0 à 100% décrivant les sites du référentiels ordonnés par valeur d'offre en nectar. On place ensuite les sessions réalisées localement sur cette jauge, en synthétisant les offres en nectar obtenues sous forme de médiane.
+```{r}
+# référentiel : données protocolées, sur les prairies urbaines de la MGP
+# dt_ref_MGP_urbain_prairie
 
-**Positionnement de l'a richesse'offre en nectar du site par rapport au référentiel auquel sont liées les sessions du site :** La colonne "norm" correspond au pourcentage de sessions du référentiel qui ont des valeurs d'offre en nectar inférieures à la valeur du site. Dans cette fonction, on cherche à positionner la valeur médiane d'activité du site, par rapport aux sessions du référentiels. On cherche à obtenir un pourcentage qui nous dit : pour la médiane d'offre en nectar du référentiel X calculée à partir des sessions locales, Y % des sessions du référentiels ont des indices d'offre en nectar inférieurs.
+func_evol_richesse_freq = function(dt_local_ou_ref, echel) {
+  dt_evol_ref = dt_local_ou_ref %>%
+  # filtre sur le nombre de sites par année : pour faire une moyenne annuelle de valeurs pour le référentiel, je veux qu'il y ait les données d'au moins 5 sites par an :
+  group_by(session_year) %>%
+  mutate(nb_site_an = n_distinct(site_id)) %>%
+  ungroup() %>%
+  
+  mutate(echelle = echel) %>% 
+  select(session_id, site_id, referentiel, nb_sp_session, session_year, echelle, nb_site_an) %>%
+  unique() %>%
+  group_by(session_year) %>%
+  # moyenner les valeur de richesse et frequence par année pour tous les sites
+  #--> avoir un seul chiffre pour le référentiel
+  mutate(
+  # freq_moy_an_inter = mean(freq),
+  #        freq_Q1 = quantile(freq, 0.25), 
+  #        freq_Q3 = quantile(freq, 0.75),
+  #        freq_median = quantile(freq, 0.5),
+         moy_riches_tot_inter = mean(nb_sp_session),
+         riches_Q1 = quantile(nb_sp_session, 0.25), 
+         riches_Q3 = quantile(nb_sp_session, 0.75),
+         riches_median = quantile(nb_sp_session, 0.5),
+         nb_site = n_distinct(site_id),
+         # shannon_moy_an_inter = mean(shannon),
+         # shannon_Q1 = quantile(shannon, 0.25), 
+         # shannon_Q3 = quantile(shannon, 0.75),
+         # shannon_median = quantile(shannon, 0.5)
+         ) %>%
+  ungroup() %>%
+  # on enlève les années pour lesquelles il y a moins de 5 sites 
+  # filter(nb_site > 4) %>%
+  select(echelle, moy_riches_tot_inter, riches_Q1, riches_Q3, riches_median,  session_year, nb_site_an) %>% #shannon_moy_an_inter, shannon_Q1, shannon_Q3, shannon_median,
+  unique() %>%
+  mutate(session_year = as.numeric(session_year))
+  
+  return(dt_evol_ref)
+}
 
-Il peut y avoir plusieurs points pour un même site local considéré, dans le cas où celui-ci comprend plusieurs sites réalisés dans des habitats différents.
+dt_evol_ref_VA = func_evol_richesse_freq(dt_ref_VA, echel = "référentiel VA")
+dt_evol_ref_VM = func_evol_richesse_freq(dt_ref_VM, echel = "référentiel VM")
+
+dt_evol_VA = func_evol_richesse_freq(df_VA, echel = "VA") %>%
+  left_join(df_VA %>% select(session_year, nb_sp_session) %>% unique())
+dt_evol_VM = func_evol_richesse_freq(df_VM, echel = "VM") %>%
+  left_join(df_VM %>% select(session_year, nb_sp_session) %>% unique())
+
+DT::datatable(head(dt_evol_VA))
+DT::datatable(head(dt_evol_ref_VA))
+
+
+```
+
+**Graphe**
+
+Je n'affiche un point et la courbe que s'il y a plus de 5 sites pour lesquels on a une valeur sur une année.
+
+```{r}
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
+func_plot_evol_richesse = function(dt_evol_ref_site, dt_ref_site, dt_evol_site, site) {
+  plot_evol_richesse_site_ref = ggplot() +
+    
+    # ref
+    geom_point(
+      data = dt_evol_ref_site,
+      aes(x = session_year, y = riches_median),
+      color = "#11C2B5FF",
+      size = 3
+    ) +
+    # je ne trace la courbe que pour les points pour lesquels il y a plus de 5 sites qui ont été étudiés
+    geom_line(
+      data = dt_evol_ref_site %>% filter(nb_site_an > 4),
+      aes(x = session_year, y = riches_median),
+      color = "#11C2B5FF",
+      size = 1
+    ) +
+    
+    # tous les points de la ref
+    geom_point(
+      data = dt_ref_site %>% select(session_id, session_year, nb_sp_session) %>% unique(),
+      aes(x = session_year, y = nb_sp_session),
+      color = "#11C2B5FF",
+      size = 1
+    ) +
+    
+    # quartile ref
+    geom_ribbon(
+      data = dt_evol_ref_site,
+      # tableau de quartiles
+      aes(x = session_year, ymin = riches_Q1, ymax = riches_Q3),
+      fill = "#72E1E1FF",
+      alpha = 0.3
+    ) +
+    #local
+    geom_point(
+      data = dt_evol_site,
+      aes(x = as.numeric(session_year), y = moy_riches_tot_inter),
+      color = "#F76E5EFF",
+      size = 3
+    ) +
+    geom_line(
+      data = dt_evol_site,
+      aes(x = as.numeric(session_year), y = moy_riches_tot_inter),
+      color = "#F76E5EFF",
+      size = 1
+    ) +
+    
+    # scale_y_continuous(limits = c(0, max( max( dt_evol_site$nb_sp_session)+3,   max(dt_evol_ref_site$riches_Q3)+3   ))) +
+    theme_minimal() +
+    labs(
+      y = "richesse spécifique totale",
+      x = "année",
+      title =  paste0("Nombre d'espèces observées par site annuellement - ", site, "\nRéférentiel : ", unique(dt_ref_site$referentiel))
+    ) +
+    theme(legend.position = "none")
+  
+  return(plot_evol_richesse_site_ref)
+  
+}
+
+# plot_evol_richesse_VA = 
+  func_plot_evol_richesse(dt_evol_ref_site = dt_evol_ref_VA, dt_ref_site = dt_ref_VA, dt_evol_site = dt_evol_VA, site = "VA")
+
+# plot_evol_richesse_VM = 
+  func_plot_evol_richesse(dt_evol_ref_site = dt_evol_ref_VM, dt_ref_site = dt_ref_VM, dt_evol_site = dt_evol_VM, site = "VM")
+
+
+
+```
+
+## score de richesse du site : diagramme radar V2
+
+On cherche à faire une jauge allant de 0 à 100% décrivant les sites du référentiels ordonnées par valeur d'activité. On place ensuite les sites rélisées localement sur cette jauge, en synthétisant les activitées obtenues pour les différentes sessions des référentiels sous forme de médiane.
+
+**Positionnement de la richesse du site par rapports aux référentiels auxquels sont liées les sessions du site :** La colonne "norm" correspond au pourcentage de sessions du référentiel qui ont des valeurs d'activité inférieures à la valeur d'activité médiane des sessions du site. Les valeurs médianes d'activité locales sont groupées et comparées par référentiel. Dans cette fonction, on cherche à positionner la valeur médiane d'activité du site, par référentiel, par rapport aux autres sessions des référentiels représentés sur le site. On cherche à obtenir un pourcentage qui nous dit : pour la médiane d'activité du référentiel X calculée à partir des sessions locales, Y % des sessions du référentiels ont des indices d'activité inférieurs.
+
+Il peut y avoir plusieurs points pour un même site local considéré, dans le cas où celui-ci comprend plusieurs sites réalisés dan sdes habitats différents.
 
 ### calcul et graphe
 
-Calcul du score d'offre en nectar sur le site par référentiel.
+Calcul du score de richesse sur le site par référentiel.
 
 ```{r calcul score riches}
-fun_nectar_score = function(dt_site, dt_ref) {
+fun_riches_score = function(dt_site, dt_ref) {
   
-  
-  # calcul quantité nectar moyen sur le site
-  # = sum(freq plante i  *  nectar i) / nb_tot_plantes sur le site
-  dt_nectar_local = dt_site %>%
-    filter(taxon_liste_florilege == 1) %>%
-    select(session_id, taxon, taxon_nom_scientifique, taxon_presence) %>%
-    left_join(nectar) %>%
-    na.omit() %>% # on retire les taxons pour lesquels on a pas l'info de la quantité de nectar
-    
-    # calcul de freq plante i
-    group_by(taxon) %>%
-    mutate(freq = sum(taxon_presence)) %>%
+  dt_synthese_site = func_evol_richesse_freq(dt_site, echel = "site") %>%
+    select(session_year, riches_median, session_year) %>%
+    mutate(
+      # on calcule la médiane interannuelle des richesse médianes annuelles
+      riches_median_inter = median(riches_median),
+      # nb d'années de suivi
+      nb_an_suivi = n_distinct(session_year)
+    ) %>%
     ungroup() %>%
-    filter(freq != 0) %>%
-    mutate(freq_taxon  = freq / (n_distinct(session_id) * 10)) %>%
-    select(-session_id, -taxon_presence) %>%
-    unique() %>%
-    
-    # calcul apport en nectar par plante sur le site
-    mutate(nectar_i = freq_taxon * Nectar) %>%
-    
-    # calcul score de nectar du site
-    mutate(nectar_site =  sum(nectar_i) / n_distinct(taxon)) %>%
-    
-    select(nectar_site) %>%
+    select(-riches_median)
+  
+  # récupération des sessions des référentiels liés aux sessions locales
+  # ordination des indices d'activités et sessions. Calcul des pourcentages correspondant aux rangs des sessions, i.e. le pourcentage de sessions qui est inférieur à ce rang là
+  dt_synthese_ref = dt_ref %>% 
+    select(site_id, nb_sp_session, session_year, session_id) %>% 
     unique()
-    
   
   
-     # calcul quantité nectar moyen par session
-  # = sum(freq plante i  *  nectar i) / nb_tot_plantes dans la session
-  dt_nectar_ref = dt_ref %>%
-    filter(taxon_liste_florilege == 1) %>%
-    select(session_id, taxon, taxon_nom_scientifique, taxon_presence) %>%
-    left_join(nectar) %>%    
-    na.omit() %>% # on retire les taxons pour lesquels on a pas l'info de la quantité de nectar
-    
-    # calcul de freq plante i
-    group_by(taxon, session_id) %>%
-    mutate(freq_taxon = sum(taxon_presence) /10) %>%
-    filter(freq_taxon != 0) %>%
-    ungroup() %>%
-    unique() %>%
-    
-    # calcul apport en nectar par plante sur le site
-    mutate(nectar_i = freq_taxon * Nectar) %>%
-    
-    # calcul score de nectar de la session
-    group_by(session_id) %>%
-    mutate(nectar_session =  sum(nectar_i) / n_distinct(taxon)) %>%
-    ungroup() %>%
-    select(session_id, nectar_session) %>%
-    unique()
-    
-  
-  
-  # récupération de la position du score en nectar du site en pourcentage de sessions : pourcentage de sessions du référentiel qui ont un indice d'activité inférieur à celui de la communauté observée sur le site
-  dt_ref_rang = dt_nectar_ref %>%
-    arrange(nectar_session) %>%
+  # récupération des positions des médianes en pourcentage de sessions : pourcentage de sessions du référentiel qui ont un indice d'activité inférieur à celui de la communauté observée sur le site
+  dt_riches_ref_rang = dt_synthese_ref %>%
+    arrange(nb_sp_session) %>%
     # numérotation des sessions
-    mutate(num = order(nectar_session) - 1,
+    mutate(num = order(nb_sp_session) - 1,
            # -1 pour partir de 0
            # normaliser entre 0 et 100
            norm = 100 * num / max(num),
-           nb_session = n_distinct(session_id)) %>%
+           nb_an_ref = n_distinct(session_year)) %>%
     # gestion des sessions ayant la même activité --> le même pourcentage
-    group_by(nectar_session) %>%
+    group_by(nb_sp_session) %>%
     mutate(norm = max(norm))%>%
     ungroup()
   
   
   # je positionne les médianes sur l'échelle de 0 à 100 de l'activité des sessions 
-  temp = dt_ref_rang %>%
-    filter(nectar_session <= unique(dt_nectar_local$nectar_site)) %>%
+  temp = dt_riches_ref_rang %>%
+    filter(nb_sp_session <= unique(dt_synthese_site$riches_median_inter)) %>%
     filter(norm == max(norm)) %>%
     select(
       norm,
-      nectar_session
+      nb_sp_session
     ) %>%
-    mutate(nb_an = n_distinct(dt_site$session_year)) %>%
+    mutate(nb_an_site = unique(dt_synthese_site$nb_an_suivi)) %>%
     unique()
   
   
@@ -1033,8 +1192,8 @@ fun_nectar_score = function(dt_site, dt_ref) {
   
 }
 
-dt_activite_VM = fun_nectar_score(dt_site = df_VM, dt_ref = dt_ref_VM)
-dt_activite_VA = fun_nectar_score(dt_site = df_VA, dt_ref = dt_ref_VA)
+dt_activite_VM = fun_riches_score(dt_site = df_VM, dt_ref = dt_ref_VM)
+dt_activite_VA = fun_riches_score(dt_site = df_VA, dt_ref = dt_ref_VA)
 
 
 print(dt_activite_VM)
@@ -1042,15 +1201,15 @@ print(dt_activite_VM)
 
 **Graphe**
 
-Une fois que toutes les valeurs d'activité sont échelonnées entre 0 et 100, on affiche sur une même jauge les points des médianes pour le référentiel local --\>1 représentation 
+Une fois que toutes les valeurs d'activité sont échelonnées entre 0 et 100, on affiche sur une même jauge les points des médianes pour les différents référentiels locaux --\>1 représentation mais plusieurs points éventuels si sur un même site on a des sites réalisés dans des habitats différents
 
 ```{r representation graphique score riches}
 #| column: screen-inset-shaded
 #| layout-nrow: 1
 
-fun_graphe_nectar_gradient = function(dt_ref, dt_local, site) {
+fun_graphe_riches_gradient = function(dt_ref, dt_local, site) {
   
-  temp = fun_nectar_score(dt_ref = dt_ref, dt_site = dt_local)
+  temp = fun_riches_score(dt_ref = dt_ref, dt_site = dt_local)
   
   
   # GRAPHE
@@ -1070,8 +1229,8 @@ fun_graphe_nectar_gradient = function(dt_ref, dt_local, site) {
     plot = 
     ggplot(temp_grad) +
     geom_segment(aes(
-      x = "jauge de nectar",
-      xend = "jauge de nectar",
+      x = "jauge de richesse spécifique",
+      xend = "jauge de richesse spécifique",
       y = y_seq,
       yend = yend,
       color = value
@@ -1079,206 +1238,87 @@ fun_graphe_nectar_gradient = function(dt_ref, dt_local, site) {
             size = 4,
       guide = "none") +
       scale_color_gradient(low = "red", high = "green", guide = "none") +
-    geom_point( aes(x = "jauge de nectar", y = norm), size = 4) +
+    geom_point( aes(x = "jauge de richesse spécifique", y = norm), size = 4) +
     scale_fill_brewer(palette = "Set2") +
     # geom_text(data = temp_grad, aes(
     #   x = combi,
     #   y = 110#,
       # label = paste0("n = ", nb_session, " sessions \n dans le référentiel")
     # )) +
-    labs(y = "pourcentage de sessions du référentiel", title = paste0("score d'offre en nectar obtenue sur le site ", site), x = "") +
+    labs(y = "pourcentage de sessions du référentiel", title = paste0("richesse(s) médiane(s) obtenue(s) sur le site ", site), x = "") +
     theme_minimal() +
     # theme(legend.position = "none") 
-     geom_text( aes(x = "nombre d'année(s) de suivi\n locales", y = norm, label = paste0(nb_an, " année(s)")))
+     geom_text( aes(x = "nombre d'année(s) de suivi\n locales", y = norm, label = paste0(nb_an_site, " année(s)")))
   
   return(plot)
   
 }
 
-fun_graphe_nectar_gradient(dt_ref = dt_ref_VM, dt_local = df_VM, site = "VM")
-fun_graphe_nectar_gradient(dt_ref = dt_ref_VA, dt_local = df_VA, site = "VA")
+fun_graphe_riches_gradient(dt_ref = dt_ref_VM, dt_local = df_VM, site = "VM")
+fun_graphe_riches_gradient(dt_ref = dt_ref_VA, dt_local = df_VA, site = "VA")
 
 
 ```
 
+# TEST
 
-# INDICATEURS - V3
+## TYPICITE
 
-
-## typicité
-
-Calcul de la typicité pour chaque site : pourcentage de plantes typiques des friches, priaires et gazon en nombre de quadrats sur lesquels elles sont présentes sur toutes les années de suivi.
+### repartition des sessions du référentiel dans les freq de plantes prairiales, de friches et de gazon
 
 ```{r}
-# ============================================================
-# Création de la table de fonctionnalités pour les sites
-# de référence (sites correspondant à la Liste Florilège)
-# ============================================================
-
-# Import de la table des traits des espèces.
-# On conserve uniquement les espèces présentes dans la Liste Florilège
-# (ListeFlorilege == 1), qui sert ici de référence.
-dt_traits = read.csv2("data/SpeciesTrait2024.csv") %>% 
-  filter(ListeFlorilege == 1)
+# creation de la table de fonctionnalité pour les sites de référence
+dt_traits = read.csv2("data/SpeciesTrait2024.csv") %>% filter(ListeFlorilege == 1)
 
 
-# Nombre d'espèces de référence par type d'habitat.
-# Ces valeurs peuvent notamment servir de référence pour interpréter
-# la représentativité des espèces caractéristiques de chaque habitat.
-n_especes <- c(
-  friche = 17,
-  gazon = 11,
-  prairie = 32
-)
 
-
-# ============================================================
-# Fonction de calcul de la typicité des sites
-# ============================================================
-# La fonction prend en entrée une table de relevés floristiques
-# et calcule, pour chaque site, la proportion de plantes associées
-# aux différents habitats de référence (friche, gazon, prairie).
 fun_typicite_calcul = function(table_flori) {
   
-  
-  # ----------------------------------------------------------
-  # Préparation de la table des observations floristiques
-  # ----------------------------------------------------------
-  
-  # Sélection des variables nécessaires au calcul.
-  # unique() permet de supprimer les éventuels doublons.
   dt_fonctionnalite = table_flori %>%
-    select(
-      session_id,
-      site_id,
-      session_year,
-      taxon,
-      taxon_nom_scientifique,
-      taxon_presence,
-      presence_sp
-    ) %>%
+    select(session_id, site_id, session_year, taxon, taxon_nom_scientifique, taxon_presence, presence_sp) %>%
     unique() %>%
-    
-    # Harmonisation de certains noms scientifiques afin qu'ils
-    # correspondent aux noms utilisés dans la table dt_traits.
-    mutate(
-      taxon_nom_scientifique = case_when(
+    mutate(taxon_nom_scientifique = case_when(
         taxon_nom_scientifique == "Silene latifolia subsp. alba" ~ "Silene latifolia",
         taxon_nom_scientifique == "Cerastium fontanum subsp. vulgare" ~ "Cerastium fontanum",
         taxon_nom_scientifique == "Plantago major subsp. major" ~ "Plantago major",
         taxon_nom_scientifique == "Medicago sativa subsp. sativa" ~ "Medicago sativa",
         taxon_nom_scientifique == "Taraxacum sectionruderalia" ~ "Taraxacum section ruderalia",
-        
-        # Cas particulier éventuellement à traiter :
         # taxon_nom_scientifique == "Festuca rubra Gr." ~ "Festuca rubra",
-        
-        # Pour toutes les autres espèces, on conserve le nom initial.
         TRUE ~ taxon_nom_scientifique
       )
     ) %>%
-    
-    # Ajout des informations sur l'habitat typique de chaque espèce
-    # à partir de la table de référence dt_traits.
-    # La colonne "Plant" de dt_traits correspond au nom scientifique
-    # utilisé dans la table des observations.
-    left_join(
-      dt_traits %>% 
-        rename(taxon_nom_scientifique = Plant)
-    ) %>%
-    
-    # On conserve uniquement les espèces pour lesquelles un habitat
-    # de référence est renseigné.
+    left_join(dt_traits %>% rename(taxon_nom_scientifique = Plant)) %>%
     filter(!is.na(HABITAT))
   
   
-  # ----------------------------------------------------------
-  # Calcul de la typicité pour chaque site
-  # ----------------------------------------------------------
-  
-  # Pour chaque site :
-  # 1. On calcule le nombre/fréquence total de plantes observées.
-  # 2. On regroupe ensuite les observations par habitat.
-  # 3. On calcule la proportion (%) de plantes appartenant à chaque
-  #    type d'habitat.
-  #
-  # Exemple :
-  # si 60 % des fréquences correspondent à des espèces typiques
-  # des prairies, alors prop_habitat = 60 pour HABITAT = "prairie".
+  # table temporaire de la typicité de chaque site ( % de plantes spécialistes des prairies, friches et gazons)
   dt_typicite_temp = dt_fonctionnalite %>%
     group_by(site_id) %>%
-    
-    # Somme des fréquences de présence de toutes les espèces
-    # observées sur le site.
     mutate(sum_freq = sum(taxon_presence)) %>%
     ungroup() %>%
-    
-    # Calcul de la somme des fréquences pour chaque habitat
-    # au sein de chaque site.
     group_by(site_id, HABITAT) %>%
-    reframe(
-      prop_habitat = 100 * sum(taxon_presence) / sum_freq
-    ) %>%
+    reframe(prop_habitat = 100 * sum(taxon_presence) / sum_freq) %>%
     ungroup() %>%
-    
-    # Suppression des éventuels doublons.
     unique() %>%
-    
-    # Pour les sessions/sites sans observation, une proportion NA
-    # est remplacée par 0.
-    mutate(
-      prop_habitat = case_when(
-        is.na(prop_habitat) ~ 0,
-        TRUE ~ prop_habitat
-      )
-    )
+    # cas des sessions vides
+    mutate(prop_habitat = case_when(is.na(prop_habitat) ~ 0, TRUE ~ prop_habitat))
   
-  
-  # ----------------------------------------------------------
-  # Création de toutes les combinaisons site × habitat
-  # ----------------------------------------------------------
-  
-  # Liste des habitats présents dans la table de référence.
-  dt_habitat = dt_traits %>%
-    select(HABITAT) %>%
-    unique()
-  
-  # Liste des sites pour lesquels une typicité a été calculée.
+  # palier au cas où aucune plante représentant d'un habitat n'est présente pour un site
+  dt_habitat = dt_traits %>% select(HABITAT) %>% unique()
   dt_sites = dt_typicite_temp %>%
     select(site_id) %>%
     unique() %>%
-    
-    # Création de toutes les combinaisons possibles entre les sites
-    # et les habitats.
-    #
-    # Cette étape est importante car un site peut ne contenir aucune
-    # espèce typique d'un habitat donné. Dans ce cas, la combinaison
-    # site × habitat n'existerait pas dans dt_typicite_temp.
     crossing(dt_habitat)
   
-  
-  # ----------------------------------------------------------
-  # Création de la table finale de typicité
-  # ----------------------------------------------------------
-  
-  # On rattache les proportions calculées à toutes les combinaisons
-  # site × habitat.
-  #
-  # Si aucune espèce d'un habitat n'est présente sur un site,
-  # le left_join() produit une valeur NA. Celle-ci est remplacée
-  # par 0 afin d'obtenir une valeur explicite de 0 %.
+  # table finale avec pour chaque site le % de plantes typiques des 3 habitats
   dt_typicite = dt_sites %>%
     left_join(dt_typicite_temp) %>%
-    mutate(
-      prop_habitat = replace_na(prop_habitat, 0)
-    )
+    mutate(prop_habitat = replace_na(prop_habitat, 0))
   
-  
-  # Retourne la table finale contenant, pour chaque site,
-  # la proportion de plantes typiques de chaque habitat.
   return(dt_typicite)
+  
+
 }
-
-
 
 
 dt_typicite_refVA = fun_typicite_calcul(dt_ref_VA)
@@ -1294,12 +1334,10 @@ dt_typicite_VM = fun_typicite_calcul(table_flori = df_VM)
 
 
 **graphe typicite**
-
-Représentation en densité des typicités des sites de référence.
-Affichage en point des valeurs de typicité pour les sites considérés localement --> fonctionne pour un seul site en local.
-
-### typicité moyenne du site
 ```{r}
+
+
+
 
 fun_plot_typicite = function(dt_ref, dt_site) {
   
@@ -1337,8 +1375,9 @@ fun_plot_typicite = function(dt_ref, dt_site) {
   
 }
 
-# plot_typicite_VA = fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
-# plot_typicite_VA
+plot_typicite_VA = fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
+plot_typicite_VA
+
 
 plot_typicite_VM = fun_plot_typicite(dt_ref = dt_ref_VM, dt_site = df_VM)
 plot_typicite_VM
@@ -1348,13 +1387,191 @@ plot_typicite_VM
 
 ```
 
+```{r}
+# code pour les sessions 
 
+# # calcul des % des espèces en fonction de leur préférences écologiques 
+# dt_typicite_session = dt_fonctionnalite %>%
+#   group_by(session_id) %>%
+#   mutate(sum_freq = sum(taxon_presence)) %>%
+#   ungroup() %>%
+#   group_by(session_id, HABITAT) %>%
+#   reframe(prop_habitat = 100 * sum(taxon_presence) / sum_freq) %>%
+#   ungroup() %>%
+#   unique() %>%
+#   # cas des sessions vides
+#   mutate(prop_habitat = case_when(is.na(prop_habitat) ~ 0,
+#                                   TRUE ~prop_habitat)
+#          )
+
+
+
+
+# ggplot(data = dt_typicite_session, aes(x = prop_habitat, group = HABITAT, fill = HABITAT)) +
+#     geom_density(color = "#11C2B5FF") +
+#     facet_wrap(~ HABITAT) +
+#     theme(
+#       legend.position="none",
+#       panel.spacing = unit(0.3, "lines"),
+#       axis.ticks.x=element_blank()
+#     ) +
+#   scale_fill_manual(values = c("prairie" = "#11C2B5FF",
+#                                "friche" =  "#11C2B5FF",
+#                                "gazon" = "#11C2B5FF"))
+
+
+```
 
 ### suivi de la typicité en fonction des années pour un site
-calcul pour un site donnée de la typicité par année (abondance moyenne par espèce de plante, par habitat). Cet indice permet de corriger le biais en faveur des espèces prairiales de la liste florilèges (sur 60 espèces : 32 sont des espèces de prairies, 17 des espèces de friche, 11 des espèces de gazon)
 
 ```{r}
+fun_evol_typicite = function(table_flori, site) {
+  
+  
+  dt_fonctionnalite = table_flori %>%
+    select(session_id, site_id, session_year,taxon, taxon_nom_scientifique, taxon_presence, presence_sp) %>%
+    unique() %>%
+    mutate(
+      taxon_nom_scientifique = case_when(
+        taxon_nom_scientifique == "Silene latifolia subsp. alba" ~ "Silene latifolia",
+        taxon_nom_scientifique == "Cerastium fontanum subsp. vulgare" ~ "Cerastium fontanum",
+        taxon_nom_scientifique == "Plantago major subsp. major" ~ "Plantago major",
+        taxon_nom_scientifique == "Medicago sativa subsp. sativa" ~ "Medicago sativa",
+        taxon_nom_scientifique == "Taraxacum sectionruderalia" ~ "Taraxacum section ruderalia",
+        # taxon_nom_scientifique == "Festuca rubra Gr." ~ "Festuca rubra",
+        TRUE ~ taxon_nom_scientifique
+      )
+    ) %>%
+    left_join(dt_traits %>% rename(taxon_nom_scientifique = Plant)) %>%
+    filter(!is.na(HABITAT))
+  
+  
+  # nombre d'années de suivi des sites
+  dt_nb_an = dt_fonctionnalite %>%
+    group_by(site_id) %>%
+    mutate(nb_an = n_distinct(session_year)) %>%
+    ungroup()
+  
+  # site_id = 700 -> 10 années de suivi
+  dt_typicite_annuelle_temp = dt_nb_an %>%
+    filter(site_id == site) %>%
+    group_by(session_year) %>%
+    mutate(sum_freq = sum(taxon_presence)) %>%
+    ungroup() %>%
+    group_by(session_year, HABITAT, site_id) %>%
+    reframe(prop_habitat = 100 * sum(taxon_presence) / sum_freq) %>%
+    ungroup() %>%
+    unique() %>%
+    # cas des sessions vides
+    mutate(prop_habitat = case_when(is.na(prop_habitat) ~ 0, TRUE ~ prop_habitat))
+  
+  
+  # palier au cas où aucune plante représentant d'un habitat n'est présente pour une session
+  dt_habitat = dt_traits %>% select(HABITAT) %>% unique()
+  dt_sessions = dt_typicite_annuelle_temp %>%
+    select(session_year) %>%
+    unique() %>%
+    crossing(dt_habitat)
+  
+  # table finale avec pour chaque site le % de plantes typiques des 3 habitats
+  dt_typicite_annuelle = dt_sessions %>%
+    left_join(dt_typicite_annuelle_temp) %>%
+    mutate(prop_habitat = replace_na(prop_habitat, 0)) # remplacer par 0 si Ordonnée à l'origine manquante
+  
+  
+  
+  # calcul des valeurs relatives par rapport à la première année
+  prairie_1 = dt_typicite_annuelle %>% filter(HABITAT == "prairie" &
+                                                session_year == min(session_year)) %>% pull(prop_habitat)
+  friche_1 = dt_typicite_annuelle %>% filter(HABITAT == "friche" &
+                                               session_year == min(session_year)) %>% pull(prop_habitat)
+  gazon_1  = dt_typicite_annuelle %>% filter(HABITAT == "gazon" &
+                                               session_year == min(session_year)) %>% pull(prop_habitat)
+  
+  dt_typicite_relative = dt_typicite_annuelle %>%
+    mutate(
+      # prop_hab_relative = case_when(
+      #   HABITAT == "prairie" &
+      #     prairie_1 != 0 ~ (prop_habitat * 100 / prairie_1) - 100,
+      #   HABITAT == "friche" &
+      #     friche_1 != 0 ~ (prop_habitat * 100 / friche_1) - 100,
+      #   HABITAT == "gazon" &
+      #     gazon_1 != 0 ~ (prop_habitat * 100 / gazon_1) - 100,
+      #   TRUE ~ prop_habitat
+      # ),
+      # difference par rapport à la première valeur
+      prop_hab_difference = case_when(
+        HABITAT == "prairie"  ~ prop_habitat - prairie_1,
+        HABITAT == "friche"  ~ prop_habitat - friche_1,
+        HABITAT == "gazon" ~ prop_habitat - gazon_1
+      )
+    )
+  
+  return(dt_typicite_relative)
+  
+}
 
+dt_evol_typicite_VA = fun_evol_typicite(df_VA, site = 1109)
+
+dt_evol_typicite_refVA = fun_evol_typicite(dt_ref_VA, site = 1)
+```
+
+**représentation graphique typicité**
+
+```{r}
+fun_plot_evol_typicite = function(table_flori, site) {
+  
+  dt_typicite_evol = fun_evol_typicite(table_flori, site)
+  
+  plot_evol_typi = ggplot(
+    dt_typicite_evol,
+    aes(
+      x = session_year,
+      y = prop_habitat,
+      colour = HABITAT,
+      group = HABITAT
+    )
+  ) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 3) +
+    scale_colour_manual(values = c(
+      "prairie" = "#C2CEAAFF",
+      "friche"  = "#648C16FF",
+      "gazon"   = "darkgreen"
+    )) +
+    labs(title = "proportion espèces typiques simple") +
+    theme_minimal()
+  
+  # ggplot(dt_typicite_evol,
+  #        aes(x = session_year,
+  #            y = prop_hab_difference,
+  #            colour = HABITAT,
+  #            group = HABITAT)) +
+  #   geom_line(linewidth = 1) +
+  #   scale_colour_manual(values = c(
+  #     "prairie" = "#C2CEAAFF",
+  #     "friche"  = "#648C16FF",
+  #     "gazon"   = "darkgreen"
+  #   )) +
+  #   labs(title = "proportion espèces typiques difference") +
+  #   theme_classic()
+  
+  return(plot_evol_typi)
+  
+  
+}
+
+fun_plot_evol_typicite(df_VA, 1109)
+fun_plot_evol_typicite(df_VM, 645)
+
+
+
+```
+
+
+### evolution de la typicité version 1 : sans pondération
+Pourcentage d'observations correspondant à un habitat
+```{r}
 
 fun_evol_typicite = function(table_flori, site) {
 
@@ -1405,18 +1622,15 @@ fun_evol_typicite = function(table_flori, site) {
     group_by(session_year) %>%
     mutate(sum_freq = sum(taxon_presence)) %>%
     ungroup() %>%
-  
-  # proportion d'habitat en intégrant une pondération des occurences par le nombre d'espèces propre à chaque habitat de la liste florilèges
-  # pondération par le % d'espèces de la liste correspondant à chaque habitat :
-  # prairie = 32/60, gazon = 11/60, friche = 17/60
-  group_by(site_id, HABITAT, session_year) %>%
-    summarise(abondance = sum(taxon_presence, na.rm = TRUE),
-              .groups = "drop") %>%
-    mutate(n_especes = n_especes[HABITAT], score = abondance / n_especes) %>%
-    # normalisation des scores
-    group_by(site_id, session_year) %>%
-    mutate(prop_habitat = 100 * score / sum(score)) %>%
-    ungroup()
+    
+    # version 1 : part des observations correspondant à un habitat
+    # ne gère pas le biais en faveur des espèces prairiales qui sont plus représentées
+    group_by(session_year, HABITAT, site_id) %>%
+    reframe(prop_habitat = 100 * sum(taxon_presence) / sum_freq) %>%
+    ungroup() %>%
+    unique() %>%
+    # cas des sessions sans observations
+    mutate(prop_habitat = case_when(is.na(prop_habitat) ~ 0, TRUE ~ prop_habitat)) 
   
 
   
@@ -1446,7 +1660,42 @@ fun_evol_typicite = function(table_flori, site) {
     ) %>%
     select(-score)
   
-
+  
+  # ---------------------------------------------------------------------------
+  # Récupération de la proportion de chaque habitat lors de la première année
+  # de suivi (année de référence)
+  # ---------------------------------------------------------------------------
+  # prairie_1 = dt_typicite_annuelle %>%
+  #   filter(HABITAT == "prairie",
+  #          session_year == min(session_year)) %>%
+  #   pull(prop_habitat)
+  # 
+  # friche_1 = dt_typicite_annuelle %>%
+  #   filter(HABITAT == "friche",
+  #          session_year == min(session_year)) %>%
+  #   pull(prop_habitat)
+  # 
+  # gazon_1 = dt_typicite_annuelle %>%
+  #   filter(HABITAT == "gazon",
+  #          session_year == min(session_year)) %>%
+  #   pull(prop_habitat)
+  
+  
+  # ---------------------------------------------------------------------------
+  # Calcul de l'évolution de la proportion de chaque habitat
+  # par rapport à la première année de suivi
+  # Une valeur positive indique une augmentation,
+  # une valeur négative une diminution.
+  # ---------------------------------------------------------------------------
+  # dt_typicite_relative = dt_typicite_annuelle %>%
+  #   mutate(
+  #     prop_hab_difference = case_when(
+  #       HABITAT == "prairie" ~ prop_habitat - prairie_1,
+  #       HABITAT == "friche"  ~ prop_habitat - friche_1,
+  #       HABITAT == "gazon"   ~ prop_habitat - gazon_1
+  #     )
+  #   )
+  
   
   return(dt_typicite_annuelle)
   
@@ -1459,180 +1708,5 @@ dt_evol_typicite_refVA = fun_evol_typicite(dt_ref_VA, site = 1)
 
 
 ```
-
-**représentation graphique de l'évolution de la typicité**
-
-```{r}
-fun_plot_evol_typicite = function(table_flori, site) {
-  
-  dt_typicite_evol = fun_evol_typicite(table_flori, site)
-  
-  plot_evol_typi = ggplot(
-    dt_typicite_evol,
-    aes(
-      x = session_year,
-      y = prop_habitat,
-      colour = HABITAT,
-      group = HABITAT
-    )
-  ) +
-    geom_line(linewidth = 1) +
-    geom_point(size = 3) +
-    scale_colour_manual(values = c(
-      "prairie" = "#C2CEAAFF",
-      "friche"  = "#648C16FF",
-      "gazon"   = "darkgreen"
-    )) +
-    labs(title = "proportion espèces typiques") +
-    theme_minimal() +
-    scale_x_continuous(limits = c(
-      min(dt_typicite_evol$session_year),
-      max(dt_typicite_evol$session_year)
-    ),
-    breaks = seq(
-      min(dt_typicite_evol$session_year),
-      max(dt_typicite_evol$session_year),
-      by = 1
-    ))
-  
-
-  return(plot_evol_typi)
-  
-  
-}
-
-fun_plot_evol_typicite(df_VA, 1109)
-# fun_plot_evol_typicite(df_VM, 645)
-fun_plot_evol_typicite(dt_ref_national, 959) #gazon
-fun_plot_evol_typicite(dt_ref_national, 689)# friche
-fun_plot_evol_typicite(dt_ref_national, 687) # prairie
 ```
-
-
-
-
-## gestion
-Nettoyage des données de gestion : application des filtres de Gabriel Sagot
-Calcul des intensités de fauche par sessions florilèges sous forme d'indicateurs synthétiques de gestion
-
-```{r}
-source(here::here("gestion_florileges_V3.R") )
-#on obtient data_ISG pour toutes les sessions florilèges
-```
-
-### Intensité moyenne de la fauche pratiquée sur le site
-
-```{r}
-
-
-fun_fauche_moyenne = function(dt_site, dt_ref) {
-  
-  dt_site_ISG = dt_site %>%
-    select(session_id, site_id) %>%
-    unique() %>%
-    left_join(data_ISG %>% select(session_id, score_fauche_sansbonus) %>% unique()) %>%
-    mutate(moy_score_fauche = ceiling(mean(score_fauche_sansbonus))) %>%
-    select(site_id, moy_score_fauche) %>%
-    unique()
-  
-  dt_ISG_ref = data_ISG %>%
-    filter(session_id %in% unique(dt_ref$session_id)) %>%
-    select(site_id, ISG_new, score_fauche_sansbonus) %>%
-    filter(!is.na(score_fauche_sansbonus)) %>%
-    distinct()
-  
-  DT::datatable(head(dt_ISG_ref))
-  
-  plot_fauche =
-    ggplot() +
-    geom_bar(
-      data = dt_ISG_ref,
-      aes(x = factor(score_fauche_sansbonus)),
-      stat = "count",
-      fill = "#11C2B5FF",
-      width = 0.6
-    ) +
-    geom_point(
-      data = dt_site_ISG,
-      aes(x = factor(moy_score_fauche), y = 0),
-      color = "#F76E5EFF",
-      size = 6
-    ) +
-    labs(x = "score d'intensité de la fauche", y = "nombre de sites") +
-    theme_minimal() +
-    theme(legend.position = "none") 
-
-  
-  return(plot_fauche) 
-  
-}
-
-
-plot_fauchemoy_VA = fun_fauche_moyenne(dt_site = df_VA, dt_ref = dt_ref_VA)
-plot_fauchemoy_VA
-
-plot_fauchemoy_VM = fun_fauche_moyenne(dt_site = df_VM, dt_ref = dt_ref_VM)
-plot_fauchemoy_VM
-
-
-
-```
-
-
-
-
-
-### Evolution de l'intensité de la fauche
-
-```{r}
-
-
-fun_evol_fauche = function(dt_site) {
-  dt_site_ISG = dt_site %>%
-    select(session_id, site_id, session_year) %>%
-    unique() %>%
-    left_join(data_ISG %>% select(session_id, session_year, score_fauche) %>% unique()) %>%
-    unique()
-  
-  DT::datatable(head(dt_site_ISG))
-  
-  plot_evol_fauche =
-    ggplot() +
-    geom_point(
-      data = dt_site_ISG,
-      aes(x = session_year, y = score_fauche),
-      color = "#F76E5EFF",
-      size = 6
-    ) +
-    labs(y = "score d'intensité de la fauche", x = "années") +
-    theme_minimal() +
-    theme(legend.position = "none") +
-    scale_x_continuous(limits =
-                         c(
-                           min(dt_site_ISG$session_year),
-                           max(dt_site_ISG$session_year)
-                         ),
-                       breaks = seq(
-                         min(dt_site_ISG$session_year),
-                         max(dt_site_ISG$session_year) ,
-                         by = 1
-                       )) +
-    scale_y_continuous(limits = c(0, 8), breaks = seq(0, 8, by = 1))
-  
-  return(plot_evol_fauche)
-}
-
-
-plot_evolfauche_VA = fun_evol_fauche(dt_site = df_VA)
-plot_evolfauche_VA
-
-plot_evolfauche_VM = fun_evol_fauche(dt_site = df_VM)
-plot_evolfauche_VM
-
-```
-
-
-
-
-
 
