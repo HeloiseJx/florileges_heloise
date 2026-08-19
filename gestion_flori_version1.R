@@ -1,22 +1,16 @@
-# Données produites par le script parent : elles constituent le jeu de données d'entrée.
+# données du script parent
 df_florilege  = df_florileges
 
 
-# 0. PRÉPARATION DES DONNÉES ET FONCTION DE MISE EN FORME ####
-# Cette section prépare les données de gestion avant les contrôles de cohérence.
-# La fonction ci-dessous standardise les réponses brutes et crée des facteurs
-# dont les modalités sont ensuite utilisées par les filtres de qualité.
+# 0. IMPORTATION MODULES ET DONNEES ####
 
-# Fonction de nettoyage et de recodage des variables de gestion.
-# Elle transforme les réponses brutes (listes, libellés longs, valeurs 'null', etc.)
-# en modalités courtes et homogènes, plus faciles à filtrer et analyser.
+# fonction de mise en forme des données de gestion
 mise_en_forme_gestion <- function(df){
   
   ###### Type de fauche
-  # Nettoie les réponses concernant le type de fauche et les transforme en codes courts.
   df_new = df %>%
     mutate(fauche = if_else(
-      is.na(fauche), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(fauche), NA_character_,  # Conserve les NA
       case_when(
         fauche == "[]" ~ "PasFauche",
         TRUE ~sapply(str_extract_all(fauche, "broyage|faux|Pas de fauche|Je ne sais pas"), function(x) paste(sort(factor(x, levels = c("broyage", "faux", "Pas de fauche", "Je ne sais pas"))), collapse = " "))
@@ -25,24 +19,23 @@ mise_en_forme_gestion <- function(df){
   
   df_new = df_new %>%
     mutate(fauche = if_else(
-      is.na(fauche), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(fauche), NA_character_,  # Conserve les NA
       str_replace_all(fauche, c("broyage" = "FB", "faux" = "FT", "Pas de fauche" = "PF", "Je ne sais pas" = "NSP"))
     ))
   
   df_new$fauche = factor(df_new$fauche, levels = c("PF","FB","FT","NSP"))
   
   
-  ###### Période de fauche
-  # Identifie les périodes renseignées et impose un ordre stable aux combinaisons possibles.
+  ###### Periode de fauche
   df_new = df_new %>%
     mutate(periodes_fauches = if_else(
-      is.na(periodes_fauches), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(periodes_fauches), NA_character_,  # Conserve les NA
       case_when(
         periodes_fauches == "[]" ~ "PasFauche",
         TRUE ~sapply(str_extract_all(periodes_fauches, "estivale|precoce|tardive|je-ne-sais-pas"), function(x) paste(sort(factor(x, levels = c("precoce", "estivale", "tardive", "je-ne-sais-pas"))), collapse = " "))
       )
     ))
-  # Vérifie que toutes les combinaisons attendues sont bien présentes dans les niveaux du facteur.
+  # Condition verifie oubli aucune valeur du facteur
   df_new$periodes_fauches = factor(df_new$periodes_fauches, levels = c("PasFauche", "precoce","estivale","tardive","precoce estivale","precoce tardive", "estivale tardive", "precoce estivale tardive","je-ne-sais-pas","precoce je-ne-sais-pas","tardive je-ne-sais-pas"))
   
   df_new = df_new %>% 
@@ -63,11 +56,10 @@ mise_en_forme_gestion <- function(df){
   df_new$periodes_fauches = factor(df_new$periodes_fauches, levels = c("NoF", "P","E","T","PE","PT", "ET", "PET","NSP","NSPP","NSPT"))
   
   
-  ###### Fréquence de fauche
-  # Recodage des fréquences de fauche en modalités courtes utilisées dans les analyses.
+  ###### Frequence de fauche#
   df_new <- df_new %>%
     mutate(frequence_fauches = if_else(
-      is.na(frequence_fauches), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(frequence_fauches), NA_character_,  # Conserve les NA
       str_replace(frequence_fauches, "Je ne sais pas", "NSP"))
     )
   
@@ -87,21 +79,19 @@ mise_en_forme_gestion <- function(df){
   
   
   ###### Exportation des résidus
-  # Harmonise les réponses sur l'exportation des résidus et conserve les valeurs manquantes.
   df_new = df_new %>%
     mutate(exportation_residus = if_else(
-      is.na(exportation_residus), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(exportation_residus), NA_character_,  # Conserve les NA
       str_replace(exportation_residus, "Je ne sais pas", "NSP"))
     )
   
   df_new$exportation_residus = factor(df_new$exportation_residus, levels = c("Oui","Non","NSP"))
   
   
-  ##### Pâturage
-  # Nettoie les réponses de pâturage et transforme les combinaisons d'animaux en codes courts.
+  ##### Paturage
   df_new = df_new %>%
     mutate(paturages = if_else(
-      is.na(paturages), NA_character_,  # Conserve les valeurs manquantes afin de ne pas les confondre avec une réponse négative.
+      is.na(paturages), NA_character_,  # Conserve les NA
       case_when(
         paturages == "[]" ~ NA_character_,
         TRUE ~sapply(str_extract_all(paturages, "pas-de-paturage|bovin|ovin|caprin|equide|autre|je-ne-sais-pas"), function(x) paste(sort(factor(x, levels = c("pas-de-paturage", "bovin", "caprin", "equide", "ovin", "autre","je-ne-sais-pas"))), collapse = " ")))
@@ -144,8 +134,7 @@ mise_en_forme_gestion <- function(df){
   df_new <- df_new %>% 
     mutate(paturages_cat = factor(paturages_cat, levels = c("NP", "P", "NSP", "Inconnu")))
   
-  ##### Pâturage
-  # Nettoie les réponses de pâturage et transforme les combinaisons d'animaux en codes courts.s duree annuelle
+  ##### Paturages duree annuelle
   df_new = df_new %>% 
     mutate(duree_annuelle_paturage = case_when(
       duree_annuelle_paturage == "null" ~ NA,
@@ -172,8 +161,7 @@ mise_en_forme_gestion <- function(df){
   df_new = df_new %>% 
     mutate(duree_annuelle_paturage_cat = factor(duree_annuelle_paturage_cat, levels = c("NP","M3m","M6m","P6m")))
   
-  ##### Pâturage
-  # Nettoie les réponses de pâturage et transforme les combinaisons d'animaux en codes courts.s pression
+  ##### Paturages pression
   df_new = df_new %>% 
     mutate(pression_paturage = case_when(
       pression_paturage == "null" ~ NA,
@@ -209,35 +197,28 @@ mise_en_forme_gestion <- function(df){
 }
 
 
-# Réduit le jeu de données aux informations nécessaires à la gestion.
-# Les observations taxonomiques et plusieurs variables techniques sont retirées
-# pour éviter de dupliquer les informations lors des étapes de correction.
-# Prépare un jeu de données allégé, centré sur les variables de gestion.
+# df reduit (sans les taxons)
 df_florilege_red <- df_florilege %>% 
   select(-all_of(starts_with("taxon")),-observation_id,-cd_nom) %>% 
   select(-all_of(starts_with("tige")),-all_of(starts_with("date")),-all_of(starts_with("travaux")),-all_of(starts_with("frequence_t")),-all_of(starts_with("frequence_a")),-protocole,-site_zip_code) %>%
   distinct()
 
-# Importe le tableau de référence utilisé pour compléter/corriger certaines informations de gestion.
+# données audrey pour compléter df
 df_audrey2 = read_excel("C:/Git/florileges code gabriel/florileges_HM/data/rdata/df_florileges/SiteYearGestion20250330.xlsx")
 
-# Applique le nettoyage initial à toutes les variables de gestion.
 df_gest <- mise_en_forme_gestion(df_florilege_red)
 
 
 
 
 
-# 1. CORRECTION DES INFORMATIONS D'EXPORTATION DES RÉSIDUS ####
-# Compare les informations de la base principale avec le fichier de référence
-# et applique les corrections lorsque la source de référence est considérée comme prioritaire.
+# 1. CORRECTION - EXPORT RESIDUS  ####
 
-# Récupère uniquement l'identifiant du relevé et l'information d'exportation des résidus.
+# RECUPERE INFOS EXPORT AUDREY
 corr_export_res = df_audrey2 %>% 
   select(id_releve, ExportationResidus)
 
-# Compare, pour chaque relevé, la valeur provenant de la base principale et celle du fichier de référence.
-# La valeur du fichier de référence est utilisée pour corriger les incohérences identifiées., on compare ce qui est renseigné dans le df d'audrey vs ce qui est renseigné sur la bd mosaic (colonne diff_export qui paste les export de fauche des 2 df pour une même gestion)
+# Pour les session pour lesquelles il y a des infos de gestion erronées, on compare ce qui est renseigné dans le df d'audrey vs ce qui est renseigné sur la bd mosaic (colonne diff_export qui paste les export de fauche des 2 df pour une même gestion)
 # les informations d'audrey prévalent par rapport à celles de la BD mosaic
 df_gest = df_gest %>% 
   left_join(corr_export_res, by = c("session_id" = "id_releve" ))
@@ -247,7 +228,7 @@ unique(df_gest$diff_export)
 
 
 
-# Applique les corrections identifiées à partir de la comparaison précédente.
+# MODIFIE INFOS DANS NOTRE JEU DE DONNEES à partir de la colonne diff_export
 df_gest_corrExp = df_gest %>%
   mutate(exportation_residus = case_when(
     diff_export == "Non_Oui" ~ "Oui",
@@ -257,7 +238,7 @@ df_gest_corrExp = df_gest %>%
 df_gest_corrExp = df_gest_corrExp %>% 
   select(-ExportationResidus,-diff_export)
 
-# À ce stade, l'information d'exportation des résidus est corrigée et remise sous forme de facteur.
+# --> df avec les export corrigés
 df_gest_corrExp = df_gest_corrExp %>% 
   mutate(exportation_residus = factor(exportation_residus, levels = c("Oui","Non","NSP")))
 
@@ -266,19 +247,14 @@ df_gest_corrExp = df_gest_corrExp %>%
 
 
 
-# 2. CONTRÔLE DE COHÉRENCE ET FORMATAGE DES DONNÉES DE GESTION ####
-# Les réponses de fauche et de pâturage sont comparées à des tables de règles.
-# L'objectif est de distinguer les combinaisons cohérentes, incomplètes ou incohérentes.
+# 2. FORMATAGE GESTION ####
 
-##### 2.1 Fauche #####
-# Construction des catégories intermédiaires puis application des règles de cohérence.
-# Table de référence indiquant si les différentes combinaisons de variables de fauche sont cohérentes.
+##### 2.1 FAUCHE #####
+# indique si les combinaisons entre les variables décrivant la fauche sont ok ou pas
 table_filtre_faucheNAper <- read_excel("C:/Git/florileges code gabriel/florileges_HM/data/rdata/tables_de_filtres/filtre_categorielle_fauche-ou-pas_NAper.xlsx")
 
-###### 2.1.1 Création de catégories simplifiées pour les variables de fauche ######
-# Chaque variable est ramenée à quelques catégories communes : fauche (F), pas de fauche (PF),
-# information absente/inconnue (NANSP) ou problème (PRB).
-# PRB = combinaison ou valeur qui ne correspond à aucune modalité attendue.
+###### 2.1.1 Creation des categories F ou PF pour toutes les variables ######
+# "PRB" = Problème
 df_gest2 = df_gest_corrExp %>% 
   mutate(TF_cat = case_when(
     fauche == "PF" ~ "PF",
@@ -286,14 +262,13 @@ df_gest2 = df_gest_corrExp %>%
     fauche == "NSP" | is.na(fauche) ~ "NANSP",
     TRUE ~ "PRB"
   ),
-  # Déduit la présence ou l'absence de fauche à partir des périodes renseignées.
+  # categories F ou PF à partir des données de période de fauche
   Per_cat = case_when(
     periodes_fauches == "NSP" | periodes_fauches == "NoF"  ~ "NANSP",
     periodes_fauches %in% list("P","E","T","PE","PT","ET","PET") ~ "F",
     TRUE ~ "PRB"
   ),
-  # Déduit la présence ou l'absence de fauche à partir de la fréquence renseignée.
-# Le cas '< 1/an' est traité en fonction du type de fauche déjà identifié.
+  # categories F ou PF à partir des données de frequences de fauche
   Freq_cat = case_when(
     # frequence_fauches == "M1" ~ "PF",
     frequence_fauches == "M1" & TF_cat == "F" ~ "F", # cas des fauches bisannuelles
@@ -302,8 +277,7 @@ df_gest2 = df_gest_corrExp %>%
     frequence_fauches %in% list("E1","E2","P2") ~ "F",
     TRUE ~ "PRB"
   ),
-  # Catégorise l'exportation des résidus : exportés (E), non exportés (NE),
-# inconnus/manquants (NANSP) ou problème (PRB).
+  # categories F ou PF à partir des données d'e frequences de fauche'export des résidus
   Exp_cat = case_when(
     exportation_residus == "Non" ~ "NE",
     exportation_residus == "Oui" ~ "E",
@@ -323,8 +297,7 @@ df_gest2 = df_gest2 %>%
 
 
 
-# Corrections manuelles de deux relevés connus pour contenir une période de fauche mal renseignée.
-# Ces corrections sont spécifiques aux identifiants indiqués et doivent être documentées si elles évoluent.
+# CORRECTION DES DONNEES MAL RENSEIGNEES de périodes de fauche
 df_gest2 = df_gest2 %>% 
   mutate(periodes_fauches = case_when(
     session_id == 26206 ~ 'P', # a la place NSPP
@@ -337,18 +310,15 @@ df_gest2 = df_gest2 %>%
   ) 
 
 
-###### 2.1.2 Application du filtre catégoriel ######
-# Joint la table de règles pour obtenir le statut de cohérence de chaque combinaison.
-# Pour chaque combinaison de catégories, récupère le statut de validité défini dans la table de référence.
+###### 2.1.2 Application du filtre categoriel ######
+# jpointure avec la table table_filtre_faucheNAper qui associe aux différentes combinaisons de valeurs de cellule de gestion un tag de validité des données
 df_gest2 = df_gest2 %>% 
-  # Vérifie la cohérence de la combinaison type / fréquence / période / exportation.
+  #verification des combinaisons entre les différentes variables décrivant la fauche
   left_join(table_filtre_faucheNAper, by = c("TF_cat" = "typeF_cat", "Freq_cat" = "freq_cat", "Per_cat" = "per_cat", "Exp_cat" = "exp_cat"))
 
 
 
-###### 2.1.3 Transformation de la fréquence et de la période en valeurs internes ######
-# Convertit les modalités de fréquence et de période en nombres permettant de comparer
-# leur niveau de détail/intensité dans l'étape suivante.
+###### 2.1.3 Transformation des donnees frequence/periode si fauche averee######
 df_gest2 = df_gest2 %>% 
   mutate(Freq_catinterne = case_when(
     (Fr_corr == "OK" & Per_corr == "OK") & frequence_fauches == "M1" ~ 1,
@@ -364,21 +334,18 @@ df_gest2 = df_gest2 %>%
     )
   )
 
-###### 2.1.4 Contrôle de compatibilité entre fréquence et période ######
-# Vérifie que le nombre de périodes renseignées est compatible avec la fréquence de fauche.      
+###### 2.1.4 Application du filtre sur la compatibilite frequence/periode ######      
 df_gest2 = df_gest2 %>% 
   mutate(comp_PerFr = case_when(
     Freq_catinterne >= Per_catinterne ~ "Oui",
     Freq_catinterne < Per_catinterne ~ "Non",
     TRUE ~ NA_character_),
-    comp_globale = paste(OK,comp_PerFr,sep= "_") # Combine le contrôle issu de la table de règles avec le contrôle fréquence/période.
+    comp_globale = paste(OK,comp_PerFr,sep= "_") # permet de coller 2 scores de validité des données : celui obtenu à partir de la table locale qui considère la combinaison des variables de gestion, et celui ci qui considère la cohérence entre fréquence de gestion et périodes de gestion renseignées
   )
 
 
 
-###### 2.1.5 Création des variables de fauche corrigées ######
-# Conserve uniquement les informations jugées utilisables et remplace les modalités invalides
-# par NA, PF ou EXCLURE selon le statut du contrôle.
+###### 2.1.5 Creation des nouvelles variables de fauche a utiliser ######
 df_gest2 = df_gest2 %>% 
   mutate(fauche_corr = case_when(
     (OK == "Oui" | OK == "Bof") & comp_globale != "Oui_Non" & TF_corr == "OK" ~ fauche,
@@ -414,8 +381,7 @@ df_gest2 = df_gest2 %>%
 
 
 
-###### 2.1.6. ISG fauche : variable récapitulative ######
-# Construit un identifiant synthétique du mode de gestion à partir des quatre variables de fauche.
+###### 2.1.6. ISG FAUCHE :Variable recapitulative de la fauche ######
 # --> colonne ModeGestion
 
 df_gest2 = df_gest2 %>% 
@@ -424,7 +390,7 @@ df_gest2 = df_gest2 %>%
 df_gest2 = df_gest2 %>% 
   mutate(ModeGestion = ifelse(ModeGestion == "PF_PF_PF_PF", "PF", ModeGestion))
 
-# Compte, pour chaque relevé, le nombre de variables de fauche corrigées qui restent manquantes. 
+# Nombre de donnees de fauche manquantes 
 df_gest2 = df_gest2 %>% 
   mutate(nbNA = rowSums(is.na(across(c(fauche_corr, frequence_fauches_corr, periodes_fauches_corr, exportation_residus_corr)))))
 
@@ -434,13 +400,11 @@ df_gest2 = df_gest2 %>%
 
 
 
-##### 2.2. Pâturage #####
-# Même principe que pour la fauche : catégorisation, contrôle par table de règles,
-# puis création de variables corrigées utilisables dans l'analyse.#
-# Table de référence indiquant quelles combinaisons de pâturage sont cohérentes.
+##### 2.2. PATURAGE #####
+# de même, table qui donne les combinaisons d'informations de paturage qui sont correctes et incorrectes
 table_filtre_paturage <- read_excel("C:/Git/florileges code gabriel/florileges_HM/data/rdata/tables_de_filtres/filtre_categorielle_pat-ou-pas.xlsx")
 
-###### 2.2.1 Création des catégories pâturage / absence de pâturage / information manquante ######
+###### 2.2.1 Creation des categories NP/P/NA ######
 df_gest3 = df_gest2 %>% 
   mutate(paturages_cat = case_when(
     paturages_cat == "NP" ~ "NP",
@@ -459,8 +423,7 @@ df_gest3 = df_gest2 %>%
   )
 
 
-###### 2.2.2 Application du filtre catégoriel ######
-# Joint la table de règles afin d'obtenir le statut de cohérence de chaque relevé.
+###### 2.2.2 Application du filtre categoriel ######
 
 df_gest3 = df_gest3 %>% 
   left_join(table_filtre_paturage, by = c("paturages_cat" = "paturage_cat" , "duree_annuelle_paturage_catpat" = "duree_catpat" , "pression_paturage_catpat" = "pression_catpat")) %>% 
@@ -470,9 +433,7 @@ df_gest3 = df_gest3 %>%
 
 
 
-###### 2.2.3 Création des variables de pâturage corrigées ######
-# Les valeurs sont conservées, transformées en absence de pâturage, mises à NA ou exclues
-# selon le résultat du contrôle de cohérence.
+###### 2.2.3 Creation des nouvelles variables de paturage ######
 df_gest3 = df_gest3 %>% 
   mutate(paturages_corr = case_when(
     (OK_pat == "Oui") & pat_corr == "OK" ~ paturages,
@@ -503,28 +464,25 @@ df_gest3 = df_gest3 %>%
 
 
 
-###### 2.2.4 Corrections manuelles du pâturage ######
-# Ces corrections reposent sur une expertise ou sur des informations complémentaires au jeu de données.
-# Elles constituent donc des choix métier à conserver/documenter explicitement.
-# ATTENTION : cette section contient des décisions manuelles à discuter/valider.
+###### 2.2.4 Correction a la main du paturage ######
+# Partie arbitraire, a discuter
 
-# Relevés considérés comme pâturés malgré un statut initial 'Non' ou 'Bof'.
+# Sites consideres comme patûres malgre non ou bof : 9513,9776,10406,10285,9992,9673,9945,10126,9648,9466
 liste_session_pat = list(9513,9776,10406,10285,9992,9673,9945,10126,9648,9466)
 df_gest3 = df_gest3 %>%
   mutate(paturage_cat_corr = ifelse(session_id %in% liste_session_pat,"PAT",paturage_cat_corr))
 
-# Relevés considérés comme probablement/certainement pâturés malgré un statut initial 'Non' ou 'Bof'.
+# Sites consideres comme certainement patûres malgre non ou bof : 9958,9632,9939,9772
 liste_session_problmnt_pat = list(9958,9632,9939,9772)
 df_gest3 = df_gest3 %>%
   mutate(paturage_cat_corr = ifelse(session_id %in% liste_session_problmnt_pat,"PAT",paturage_cat_corr))
 
-# Relevés considérés comme non pâturés malgré un statut initial ambigu.
+# Sites consideres comme non-patures malgre non ou bof : 23043,25964,23238
 liste_session_no_pat = list(23043,25964,23238)
 df_gest3 = df_gest3 %>%
   mutate(paturage_cat_corr = ifelse(session_id %in% liste_session_no_pat,"NoPAT",paturage_cat_corr))
 
-# Corrige également les détails du pâturage pour les relevés concernés.
-# La durée et la pression sont conservées à 0 dans certains cas : ce choix reste discutable.
+# Corrige aussi les autres infos (discutable pour pression et duree)
 df_gest3 = df_gest3 %>%
   mutate(paturages_corr = case_when(
     session_id %in% c(10126,9648,9466) ~ "Pe", # donnees a NA dans paturages, mais presente dans paturages_autre
@@ -548,9 +506,8 @@ df_gest3 = df_gest3 %>%
 
 
 
-# Finalise le format des variables de pâturage avant de construire l'ISG global.
-# HYPOTHÈSE FORTE : en l'absence d'information sur le pâturage, on considère qu'il n'y a pas de pâturage.
-# Cette règle évite de perdre trop de relevés, mais elle doit être gardée à l'esprit lors de l'interprétation.
+# Reformate bien les donnees
+# HYPOTHESE FORTE : si pas infos de paturage, alors decide que il n'y a pas de paturage, sinon exclus trop de donnees
 
 # paturage bovin, equin, caprin, ovin ou autre
 
@@ -563,8 +520,7 @@ df_gest3 = df_gest3 %>%
 
 
 
-###### 2.2.5 ISG fauche + pâturage : construction du mode de gestion global ######
-# Ajoute l'information de pâturage au mode de gestion issu de la fauche.
+###### 2.2.5 ISG fauche + paturage : Ajustement des ISG avec le paturage ######
 # --> colonne ModeGestionP
 
 df_gest3 = df_gest3 %>% 
@@ -577,7 +533,6 @@ df_gest3 = df_gest3 %>%
     TRUE ~ ModeGestionP
   ))
 
-# Sauvegarde intermédiaire du jeu de données de pâturage pour un usage ultérieur éventuel.
 df_paturage = df_gest3
 
 
@@ -590,12 +545,10 @@ rm(df_gest,df_gest2,df_gest_corrExp,corr_export_res,liste_session_no_pat,liste_s
 
 
 
-# 3. FUSION DES SITES IDENTIQUES ####
-# Harmonise les identifiants de sites lorsqu'un même site apparaît sous plusieurs identifiants.
+# 3. FUSION SITES IDENTIQUES ####
 
-##### 3.1 Ajout du nouvel identifiant de site #####
-# Remplace l'ancien identifiant par l'identifiant harmonisé lorsque celui-ci existe.
-# Importe la table définissant les correspondances entre anciens et nouveaux identifiants.
+##### 3.1 Ajout du nouvel identifant de site #####
+# recupere table des sites identiques
 table_sites_identiques = read.csv2("C:/Git/florileges code gabriel/florileges_HM/data/rdata/tables_de_filtres/sites_indentiques_sur_et_certain.csv") 
 
 df_gest4 <- df_gest4 %>% 
@@ -603,16 +556,14 @@ df_gest4 <- df_gest4 %>%
   left_join(table_sites_identiques,by = c("site_id" = "Site_avant")) %>%
   mutate(site_id_corr = ifelse(is.na(Site_maintenant), site_id, Site_maintenant)) %>% 
   select(-Site_maintenant) %>%
-  # Correction ponctuelle d'une erreur de saisie documentée dans le commentaire du relevé.
+  # Erreur de saisie, est precise dans le commentaire du releve
   mutate(site_id_corr = ifelse(session_id == 20689, 739, site_id_corr))
 
 
 ##### 3.2 Ajout des nouvelles valeurs de position #####
-# La géométrie est rattachée au nouvel identifiant de site.
-# Les autres informations du site restent associées au relevé, car elles peuvent varier dans le temps.
 # Ne modifie que la geometrie, car c'est cette info qui nous a permis de dire que les sites sont identiques, en revanche les autres infos (qui peuvent changer meme aussi pour un meme site au cours de plusieurs releves) sont laissees telles quelles.
 
-# Conserve une correspondance unique entre l'ancien identifiant du site et sa géométrie.
+# Recupere uniquement association initiale site_id/donnees de position
 infos_geom_site = df_gest4 %>%
   select(site_id,site_geometry) %>% #,site_latitude,site_longitude
   rename(site_geometry_corr = "site_geometry"#,
@@ -620,24 +571,21 @@ infos_geom_site = df_gest4 %>%
          # site_latitude_corr = "site_latitude"
   ) %>%
   distinct(.keep_all = T)
-# Rattache la géométrie correspondant au nouvel identifiant de site.
+# Ajoute les nouvelles valeurs en fonction de l'identifiant du site corrige
 df_gest4 <- df_gest4 %>%
   left_join(infos_geom_site,by = c("site_id_corr" = "site_id"))
 
 
-# Tente de récupérer les autres informations du site à partir du nouvel identifiant.
-# ATTENTION : ces informations peuvent varier selon les relevés ; leur harmonisation n'est donc pas entièrement automatisable.
+# Essaye d'associer toute les valeurs du nouveau site, mais un mme id de site peut avoir des donnees differentes au cours du temps (nom, occupation, surface, etc.) -> ne peut pas l'automatiser.
 site_infos = df_gest4 %>%
   select(site_id,site,site_geometry,site_departement,surface,objectifs,objectifs_autre,frequentation,occupations_sol_anterieures,occupations_sol_anterieures_autre,site_creation,amendements,amendements_autre) %>% distinct()
 df_gest4 <- df_gest4 %>%
   left_join(site_infos, by = c("site_id_corr" = "site_id"), suffix = c("","_corr"))
 
 
-# 4. FILTRAGE DES RELEVÉS REDONDANTS ####
-# Identifie les relevés redondants et conserve uniquement ceux autorisés par la table de référence.
+# 4. FILTRAGE RELEVES REDONDANTS ####
 
-# Cas particulier : transfère les informations de gestion d'un relevé de référence vers un relevé ciblé.
-# Cette correction manuelle concerne un relevé dont les informations floristiques existent mais pas les informations de gestion.
+# Une gestion a  modifier a la main (plus infos flore mais pas infos gestion)
 cols_a_modifer = c("fauche","periodes_fauches","frequence_fauches","exportation_residus","paturages","paturages_cat","fauche_corr","periodes_fauches_corr","frequence_fauches_corr","exportation_residus_corr","paturages_corr","paturage_cat_corr","pression_pat_corr","duree_pat_corr","ModeGestion","ModeGestionP","ModeGestion_restr","comp_globale","OK_pat")
 gestion_a_recup <- df_gest4 %>% 
   filter(session_id == 26234) %>% 
@@ -649,13 +597,13 @@ df_gest4 <- df_gest4 %>%
 
 
 table_releve_redondant_a_conserver = read_excel("C:/Git/florileges code gabriel/florileges_HM/data/rdata/tables_de_filtres/table_filtre-releves-redondants.xlsx")
-# Ne conserve dans la table de référence que les colonnes nécessaires au filtrage.
+# Ne garde que les variables utiles
 table_releve_redondant_a_conserver = table_releve_redondant_a_conserver %>% 
   select(session_id,statut_redond) 
-# Ajoute le statut de conservation de chaque relevé à la table principale.
+# Rassemble dans la table principale
 df_gest5 <- df_gest4 %>% 
   left_join(table_releve_redondant_a_conserver, by = "session_id")
-# Par défaut, les relevés sont conservés ; seuls ceux explicitement marqués 'remove' sont retirés.
+# Uniformise la colonne sur les releves redondants a conserver
 df_gest5 <- df_gest5 %>% 
   mutate(statut_redond = case_when(
     statut_redond == "remove" ~  "remove",
@@ -665,14 +613,13 @@ df_gest5 <- df_gest5 %>%
 
 
 
-# 5. FILTRAGE DES DONNÉES FLORISTIQUES ####  
+# 5. FILTRAGE DONNEES FLORISTIQUES  ####  
 
-##### 5.2 Contrôle des relevés selon les données de tiges ligneuses #####
-# Calcule le nombre total de tiges ligneuses par relevé pour identifier les relevés sans données exploitables.
-# Réduit à une seule ligne par session afin d'éviter de compter plusieurs fois les mêmes informations de gestion.
+##### 5.2 Releves sans donnees tiges ligneuses #####
+# garder une ligne par session (la première)
 df_florilege_red2 = df_florilege %>% 
   distinct(session_id, .keep_all = T)
-# Convertit les variables de comptage en numérique et calcule le nombre total de tiges par session.
+# Calcule le nombre total de tiges par site
 tiges_sum = df_florilege_red2%>% 
   filter(session_date >= 2014) %>% 
   group_by(session_id) %>%
@@ -682,13 +629,13 @@ tiges_sum = df_florilege_red2%>%
   mutate(nb_tiges = sum(across(starts_with("tiges_ligneuses_nombre_Q")))) %>%
   ungroup() %>%
   filter(nb_tiges >= 0)
-# Marque les sessions sans information exploitable sur les tiges ligneuses.
+# Ajoute le filtre sur absence/presence de donnees
 tiges_sum = tiges_sum %>% 
   mutate(statut_ligneux = ifelse(is.na(nb_tiges),"remove","keep"))
-# Exclut explicitement le relevé connu pour contenir un nombre de tiges négatif.
+## Retire releve avec nombre de tige ligneuses negatif
 tiges_sum = tiges_sum %>% 
   mutate(statut_ligneux = ifelse(session_id == 9983 ,"remove",statut_ligneux))
-# Crée des classes de nombre de tiges pour faciliter les analyses et les graphiques.
+# Ajoute categorie sur nombre de tiges ligneuses
 tiges_sum = tiges_sum %>% 
   mutate(nb_tiges_cat = case_when(
     nb_tiges == 0 ~ "None",
@@ -700,35 +647,33 @@ tiges_sum = tiges_sum %>%
   ))
 tiges_sum = tiges_sum %>% 
   mutate(nb_tiges_cat = factor(nb_tiges_cat, levels = c("None","Less5","Less20","Less50","More50")))
-# Ajoute les informations sur les tiges ligneuses au jeu de données de gestion.
+# Joint les dataframes
 df_gest5 = df_gest5 %>% 
   left_join(tiges_sum,by = "session_id")
 
 
 
-# 7. CONTRÔLE DES INFORMATIONS DE POSITION GÉOGRAPHIQUE ####
+# 7. FILTRAGE POSITION GEOGRAPHIQUE ####
 
-##### 7.1 Contrôle de la géométrie #####
-# Repère les relevés pour lesquels la géométrie est absente afin de préparer une éventuelle correction.
-# À terme, la correction nécessitera également les coordonnées longitude/latitude.
-# Identifie les relevés présentant un problème de géométrie ; aucune correction automatique n'est appliquée ici.
+##### 7.1 Correction de la geometrie #####
+# necessite d'avoir les colonnes longitude et latitude --> à récupérer à terme
+# recupere releves avec geometrie a probleme (ie qui ont une geometrie mais pas de latitude/longitude), ne veut pas corriger les autres
 releves_prb_geometry = df_gest5 %>%
   filter(is.na(site_geometry_corr)) %>%
   select(session_id,site_geometry_corr)
 
-# 8. CONSTRUCTION DE data_ISG : APPLICATION DES FILTRES FINAUX ####
-# Assemble les corrections précédentes puis élimine les relevés incohérents ou redondants.
+# 8. data_ISG : APPLICATION DE TOUS LES FILTRES ####
 
-# Supprime les objets intermédiaires devenus inutiles pour libérer de la mémoire et clarifier l'environnement.
+# Enleves les objets devenus inutiles
 rm(df_gest3,df_gest4,table_releve_redondant_a_conserver,table_sites_identiques,infos_geom_site,cols_a_modifer,gestion_a_recup,tiges_sum)
 
-# Conserve uniquement les relevés dont le mode de gestion est cohérent et qui ne sont pas redondants.
+# Filtres
 df_corr_final <- df_gest5 %>% 
   filter(ModeGestion_restr != "Incoherent") %>%  # Enleve gestion incoherente
   filter(statut_redond == "keep") # Enleve releves redondants
 
 
-# Sélectionne les variables finales et renomme les variables corrigées avec leurs noms d'origine.
+# Selection des variables
 df_corr_final <- df_corr_final %>% 
   select(session_id,structure_id,user_id,site,site_geometry,site_departement,surface,objectifs,objectifs_autre,frequentation,occupations_sol_anterieures,occupations_sol_anterieures_autre,site_creation,amendements,amendements_autre,session_date,session_starting_time,session_ending_time,hauteur_vegetation,milieux,milieux_autre,semis_sursemis,fauche_corr,periodes_fauches_corr,frequence_fauches_corr,exportation_residus_corr,paturages_corr,paturage_cat_corr,pression_pat_corr,duree_pat_corr,ModeGestionP,ModeGestion_restr,traitements_phyto,traitements_phyto_autre,pressions,pressions_autre,commentaire,session_year,session_month,session_day,nbNA,site_id_corr, nb_tiges,nb_tiges_cat)%>% 
   rename(site_id = site_id_corr,
@@ -742,13 +687,12 @@ df_corr_final <- df_corr_final %>%
          duree_pat = duree_pat_corr)
 
 
-# Calcule le score d'intensité de gestion (ISG) associé à chaque combinaison de gestion.
-# Les modalités détaillées de fréquence et de période sont d'abord regroupées en classes simplifiées.
+# caluls des scores de fauche et simplification des ISG
 dt_ISG = df_corr_final %>% 
   select( ModeGestion_restr, fauche, frequence_fauches, periodes_fauches, exportation_residus, paturage_cat) %>%
   distinct() %>%
   filter() %>%
-  # Simplifie les catégories de fréquence et de période pour construire le gradient d'intensité.
+  # regroupement des categories de gestion
   mutate(freq_fauche_simple = case_when(frequence_fauches == "P2" ~ frequence_fauches, 
                                         is.na(frequence_fauches)  ~ frequence_fauches,
                                         fauche == "PF" ~ "PF",
@@ -759,8 +703,7 @@ dt_ISG = df_corr_final %>%
   ) %>%
   mutate(ISG_new = paste0( freq_fauche_simple, "_", per_simple, "_", fauche, "_", exportation_residus)) %>%
   arrange(ISG_new) %>%
-  # Principe du score : la fréquence et la période définissent le gradient principal d'intensité.
-# Le type de fauche et l'exportation des résidus ajoutent des points complémentaires (bonus).
+  # on considère que la fréq et la periode de fauche sont prioritaires et définissent le gradient d'intensité de gestion. le type de fauche et les exports sont des "bonus" en intensité, leur effet étant plus restreint.
   mutate(score_1 = case_when(fauche == "PF" ~ 1,
                              TRUE ~ 0),
          score_2 = case_when(freq_fauche_simple == "E12" & exportation_residus == "Non" ~ 2,
@@ -781,18 +724,16 @@ dt_ISG = df_corr_final %>%
                                     TRUE ~ 0),
          
   ) %>%
-  mutate(score_fauche = case_when(freq_fauche_simple == "E12" & is.na(exportation_residus) ~ NA, 
-                                  TRUE ~ score_1+score_2+score_3+score_4+bonus_score2 +bonus_score3 + bonus_score4a + bonus_score4b), 
-         score_fauche_sansbonus = case_when(freq_fauche_simple == "E12" & is.na(exportation_residus) ~ NA,
-                                            TRUE ~ score_1+score_2+score_3+score_4)) %>%
-  # Gestion des valeurs manquantes dans le calcul du score. 
-  # Si fréquence ou période est inconnue, le score d'intensité ne peut pas être déterminé.
+  mutate(score_fauche = score_1+score_2+score_3+score_4+bonus_score2 +bonus_score3 + bonus_score4a + bonus_score4b, 
+         score_fauche_sansbonus = score_1+score_2+score_3+score_4) %>%
+  #gestion des na 
+  # si la frequence et la période sont des NA alors on considère que le score est na
   mutate(score_fauche = case_when(is.na(freq_fauche_simple) | is.na(per_simple) ~ NA,
-                                  # En l'absence de fauche, le score est fixé à 1.
+                                  # s'il n'y a pas de fauche
                                   fauche == "PF" ~ 1,
                                   TRUE ~ score_fauche),
          score_fauche_sansbonus = case_when(is.na(freq_fauche_simple) | is.na(per_simple) ~ NA,
-                                            # En l'absence de fauche, le score est fixé à 1.
+                                            # s'il n'y a pas de fauche
                                             fauche == "PF" ~ 1,
                                             TRUE ~ score_fauche_sansbonus))
 
@@ -800,11 +741,10 @@ dt_ISG = df_corr_final %>%
 
 
 
-# Jeu final : combine les données floristiques complètes avec les variables de gestion corrigées et l'ISG.
+# df florileges complet avec ISG et gestion corrigée
 cols = c(colnames(dt_ISG) , colnames(df_corr_final)) %>% unique() %>% setdiff("session_id")
 
-# Fusionne les informations de gestion corrigées, les scores ISG et les données floristiques.
-data_ISG = df_corr_final %>% # modes de gestion associées aux sessions
+data_ISG = df_corr_final %>% #modes de gestion associées aux sessions
   left_join(dt_ISG) %>% #scores associés aux modes de gestion
   left_join(df_florilege %>% select(-any_of(cols)) ) %>% # reste des infos du df florileges
   unique() %>%

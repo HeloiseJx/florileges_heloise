@@ -156,7 +156,6 @@ coord_1001_voisins = st_read(
 
 ```
 
-
 ### Offre en nectar
 
 ```{r}
@@ -165,9 +164,6 @@ nectar = read_xlsx("C:/Git/florileges code gabriel/Nectar_Dispersion.xlsx") %>%
   select(taxon_nom_scientifique, Nectar) %>%
   mutate(Nectar = as.numeric(Nectar))
 ```
-
-
-
 
 ## Import des données florilèges
 
@@ -810,8 +806,6 @@ df_VM = func_sel_referentiel(df_florileges_site = df_florileges_VM, bind_all_sit
 DT::datatable(head(df_VA))
 ```
 
-
-
 ### dt_ref_VA et dt_ref_VM
 
 ```{r dt de reference pour les sites}
@@ -833,7 +827,6 @@ DT::datatable(head(dt_ref_VA))
 
 
 ```
-
 
 ### df_VA et df_VM
 
@@ -863,7 +856,6 @@ DT::datatable(df_VA)
 
 Ces fréquences correspondent à la part de sessions pour lesquelles le taxon est observé, i.e. la probabilité d'observer le taxon.
 
-
 ```{r}
 func_freq_sp = function(dt_flori) {
   
@@ -881,7 +873,6 @@ func_freq_sp = function(dt_flori) {
   return(df_freq)
 }
 ```
-
 
 ```{r}
 # je modifie les tables pour avoir le même nombre de lignes et le même ordre dans l'affichage
@@ -928,7 +919,6 @@ plot_ref = dt_freq_ref %>%
 plot_combi = plot_site + plot_ref
 plot_combi
 ```
-
 
 ## score d'offre en nectar du site : diagramme radar V2
 
@@ -1042,7 +1032,7 @@ print(dt_activite_VM)
 
 **Graphe**
 
-Une fois que toutes les valeurs d'activité sont échelonnées entre 0 et 100, on affiche sur une même jauge les points des médianes pour le référentiel local --\>1 représentation 
+Une fois que toutes les valeurs d'activité sont échelonnées entre 0 et 100, on affiche sur une même jauge les points des médianes pour le référentiel local --\>1 représentation
 
 ```{r representation graphique score riches}
 #| column: screen-inset-shaded
@@ -1101,19 +1091,19 @@ fun_graphe_nectar_gradient(dt_ref = dt_ref_VA, dt_local = df_VA, site = "VA")
 
 ```
 
-
 # INDICATEURS - V3
-
 
 ## typicité
 
-Calcul de la typicité pour chaque site : pourcentage de plantes typiques des friches, priaires et gazon en nombre de quadrats sur lesquels elles sont présentes sur toutes les années de suivi.
+Calcul de la typicité pour chaque site : pourcentage relatif de plantes typiques des friches, prairies et gazon en nombre de quadrats sur lesquels elles sont présentes sur toutes les années de suivi = part que représente chaque habitat dans le relevé floristique.
+
+Ces pourcentages sont calculés en tenant compte du biais inhérent à la liste florilèges qui contient une majorité de plantes prairiales et moins d'espèces de friches et gazons.(prairie = 32/60, gazon = 11/60, friche = 17/60 espèces)
+Ainsi il s'agit des pourcentages réels de quadrats étudiés sur lesquels on observe l'habitat, pondéré par la part de l'habitat dans la liste d'espèces.
+
+
+Cette fonction calcule ces pourcentages pour un df donné.
 
 ```{r}
-# ============================================================
-# Création de la table de fonctionnalités pour les sites
-# de référence (sites correspondant à la Liste Florilège)
-# ============================================================
 
 # Import de la table des traits des espèces.
 # On conserve uniquement les espèces présentes dans la Liste Florilège
@@ -1130,37 +1120,26 @@ n_especes <- c(
   gazon = 11,
   prairie = 32
 )
+```
 
 
-# ============================================================
-# Fonction de calcul de la typicité des sites
-# ============================================================
-# La fonction prend en entrée une table de relevés floristiques
-# et calcule, pour chaque site, la proportion de plantes associées
-# aux différents habitats de référence (friche, gazon, prairie).
-fun_typicite_calcul = function(table_flori) {
-  
-  
-  # ----------------------------------------------------------
-  # Préparation de la table des observations floristiques
-  # ----------------------------------------------------------
-  
-  # Sélection des variables nécessaires au calcul.
-  # unique() permet de supprimer les éventuels doublons.
+
+```{r}
+
+
+fun_typicite_calcul = function(table_flori, site) {
+
+  # ---------------------------------------------------------------------------
+  # Préparation des données
+  # - sélection des variables utiles
+  # - harmonisation de certains noms scientifiques
+  # - ajout de l'habitat de chaque espèce via la table des traits
+  # - suppression des espèces sans habitat renseigné
+  # ---------------------------------------------------------------------------
   dt_fonctionnalite = table_flori %>%
-    select(
-      session_id,
-      site_id,
-      session_year,
-      taxon,
-      taxon_nom_scientifique,
-      taxon_presence,
-      presence_sp
-    ) %>%
+    select(session_id, site_id, session_year, taxon,
+           taxon_nom_scientifique, taxon_presence, presence_sp) %>%
     unique() %>%
-    
-    # Harmonisation de certains noms scientifiques afin qu'ils
-    # correspondent aux noms utilisés dans la table dt_traits.
     mutate(
       taxon_nom_scientifique = case_when(
         taxon_nom_scientifique == "Silene latifolia subsp. alba" ~ "Silene latifolia",
@@ -1168,69 +1147,41 @@ fun_typicite_calcul = function(table_flori) {
         taxon_nom_scientifique == "Plantago major subsp. major" ~ "Plantago major",
         taxon_nom_scientifique == "Medicago sativa subsp. sativa" ~ "Medicago sativa",
         taxon_nom_scientifique == "Taraxacum sectionruderalia" ~ "Taraxacum section ruderalia",
-        
-        # Cas particulier éventuellement à traiter :
         # taxon_nom_scientifique == "Festuca rubra Gr." ~ "Festuca rubra",
-        
-        # Pour toutes les autres espèces, on conserve le nom initial.
         TRUE ~ taxon_nom_scientifique
       )
     ) %>%
-    
-    # Ajout des informations sur l'habitat typique de chaque espèce
-    # à partir de la table de référence dt_traits.
-    # La colonne "Plant" de dt_traits correspond au nom scientifique
-    # utilisé dans la table des observations.
-    left_join(
-      dt_traits %>% 
-        rename(taxon_nom_scientifique = Plant)
-    ) %>%
-    
-    # On conserve uniquement les espèces pour lesquelles un habitat
-    # de référence est renseigné.
+    left_join(dt_traits %>% rename(taxon_nom_scientifique = Plant)) %>%
     filter(!is.na(HABITAT))
   
   
-  # ----------------------------------------------------------
-  # Calcul de la typicité pour chaque site
-  # ----------------------------------------------------------
-  
-  # Pour chaque site :
-  # 1. On calcule le nombre/fréquence total de plantes observées.
-  # 2. On regroupe ensuite les observations par habitat.
-  # 3. On calcule la proportion (%) de plantes appartenant à chaque
-  #    type d'habitat.
-  #
-  # Exemple :
-  # si 60 % des fréquences correspondent à des espèces typiques
-  # des prairies, alors prop_habitat = 60 pour HABITAT = "prairie".
+  # ---------------------------------------------------------------------------
+  # Calcul de la proportion (%) de plantes appartenant à chaque habitat
+  # pour chaque année du site étudié
+  # ---------------------------------------------------------------------------
   dt_typicite_temp = dt_fonctionnalite %>%
+    
+    # Calcul du nombre total de plantes observées par année
     group_by(site_id) %>%
     
     # Somme des fréquences de présence de toutes les espèces
     # observées sur le site.
     mutate(sum_freq = sum(taxon_presence)) %>%
     ungroup() %>%
-    
-    # Calcul de la somme des fréquences pour chaque habitat
-    # au sein de chaque site.
-    group_by(site_id, HABITAT) %>%
-    reframe(
-      prop_habitat = 100 * sum(taxon_presence) / sum_freq
-    ) %>%
-    ungroup() %>%
-    
-    # Suppression des éventuels doublons.
-    unique() %>%
-    
-    # Pour les sessions/sites sans observation, une proportion NA
-    # est remplacée par 0.
-    mutate(
-      prop_habitat = case_when(
-        is.na(prop_habitat) ~ 0,
-        TRUE ~ prop_habitat
-      )
-    )
+  
+  # proportion d'habitat en intégrant une pondération des occurences par le nombre d'espèces propre à chaque habitat de la liste florilèges
+  # pondération par le % d'espèces de la liste correspondant à chaque habitat :
+  # prairie = 32/60, gazon = 11/60, friche = 17/60
+  group_by(site_id, HABITAT) %>%
+    summarise(abondance = sum(taxon_presence, na.rm = TRUE),
+              .groups = "drop") %>%
+    mutate(n_especes = n_especes[HABITAT], score = abondance / n_especes) %>%
+    # normalisation des scores
+    group_by(site_id) %>%
+    mutate(prop_habitat = 100 * score / sum(score)) %>%
+    ungroup()
+  
+
   
   
   # ----------------------------------------------------------
@@ -1272,33 +1223,32 @@ fun_typicite_calcul = function(table_flori) {
       prop_habitat = replace_na(prop_habitat, 0)
     )
   
+
   
-  # Retourne la table finale contenant, pour chaque site,
-  # la proportion de plantes typiques de chaque habitat.
   return(dt_typicite)
+  
 }
 
-
-
+dt_typicite_VA = fun_typicite_calcul(table_flori = df_VA)
+DT::datatable(head(dt_typicite_VA))
 
 dt_typicite_refVA = fun_typicite_calcul(dt_ref_VA)
-dt_typicite_VA = fun_typicite_calcul(df_VA)
-
-dt_typicite_refVM = fun_typicite_calcul(dt_ref_VM)
-dt_typicite_VM = fun_typicite_calcul(table_flori = df_VM)
-
 
 
 ```
 
 
 
+
+
 **graphe typicite**
 
-Représentation en densité des typicités des sites de référence.
-Affichage en point des valeurs de typicité pour les sites considérés localement --> fonctionne pour un seul site en local.
+Représentation en densité des typicités des sites de référence. Affichage en point des valeurs de typicité pour les sites considérés localement --\> fonctionne pour un seul site en local.
+
+
 
 ### typicité moyenne du site
+
 ```{r}
 
 fun_plot_typicite = function(dt_ref, dt_site) {
@@ -1329,7 +1279,8 @@ fun_plot_typicite = function(dt_ref, dt_site) {
       "prairie" = "#11C2B5FF",
       "friche" = "#11C2B5FF",
       "gazon" = "#11C2B5FF"
-    ))
+    )) +
+    labs(y = "densité", x = "proportion relative d'espèces de l'habitat")
   
   
   return(plot)
@@ -1337,21 +1288,18 @@ fun_plot_typicite = function(dt_ref, dt_site) {
   
 }
 
-# plot_typicite_VA = fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
-# plot_typicite_VA
+fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
 
-plot_typicite_VM = fun_plot_typicite(dt_ref = dt_ref_VM, dt_site = df_VM)
-plot_typicite_VM
-
-
+fun_plot_typicite(dt_ref = dt_ref_VM, dt_site = df_VM)
 
 
 ```
 
-
-
 ### suivi de la typicité en fonction des années pour un site
-calcul pour un site donnée de la typicité par année (abondance moyenne par espèce de plante, par habitat). Cet indice permet de corriger le biais en faveur des espèces prairiales de la liste florilèges (sur 60 espèces : 32 sont des espèces de prairies, 17 des espèces de friche, 11 des espèces de gazon)
+
+calcul pour un site donné de la typicité par année (abondance moyenne par espèce de plante, par habitat). Cet indice permet de corriger le biais en faveur des espèces prairiales de la liste florilèges (sur 60 espèces : 32 sont des espèces de prairies, 17 des espèces de friche, 11 des espèces de gazon)
+
+prairie = 32/60, gazon = 11/60, friche = 17/60 espèces
 
 ```{r}
 
@@ -1462,6 +1410,8 @@ dt_evol_typicite_refVA = fun_evol_typicite(dt_ref_VA, site = 1)
 
 **représentation graphique de l'évolution de la typicité**
 
+affichage pour un site donné de l'évolution des parts relatives des différents habitats dans le relevé floristique.
+
 ```{r}
 fun_plot_evol_typicite = function(table_flori, site) {
   
@@ -1508,12 +1458,10 @@ fun_plot_evol_typicite(dt_ref_national, 689)# friche
 fun_plot_evol_typicite(dt_ref_national, 687) # prairie
 ```
 
-
-
-
 ## gestion
-Nettoyage des données de gestion : application des filtres de Gabriel Sagot
-Calcul des intensités de fauche par sessions florilèges sous forme d'indicateurs synthétiques de gestion
+
+On s'intéresse aux données de fauche. Il est nécessaire de les nettoyer au préalable (application des filtres de Gabriel Sagot - stage M2 -2025). Ce script détaille les étapes de nettoyage et les modalité de calcul des scores de fauche. Le df data_ISG produit à la fin de ce script sert dans les chunks suivants. Il y a 2 scores de fauche : le score de fauche sans bonus (colonne 'score_fauche_sansbonus'), prenant les valeurs 1, 2, 4 et 6 & le score de fauche (colonne 'score_fauche'), prenant les valeurs entières allant de 1 à 8.
+
 
 ```{r}
 source(here::here("gestion_florileges_V3.R") )
@@ -1522,19 +1470,25 @@ source(here::here("gestion_florileges_V3.R") )
 
 ### Intensité moyenne de la fauche pratiquée sur le site
 
+Ce script permet de calculer une intensité de fauche moyenne pratiquée sur le site considéré et de replacer cette valeur par rapport aux valeurs de référence. On considère ici le score de fauche sans bonus.
+
 ```{r}
 
 
 fun_fauche_moyenne = function(dt_site, dt_ref) {
   
-  dt_site_ISG = dt_site %>%
+  # calcul de la valeur moyenne de gestion sur le site
+ dt_site_ISG = dt_site %>%
     select(session_id, site_id) %>%
     unique() %>%
     left_join(data_ISG %>% select(session_id, score_fauche_sansbonus) %>% unique()) %>%
+    na.omit() %>%
     mutate(moy_score_fauche = ceiling(mean(score_fauche_sansbonus))) %>%
     select(site_id, moy_score_fauche) %>%
-    unique()
+    unique() 
   
+ 
+ # récupération des valeurs d'ISG pour les sites du référentiel
   dt_ISG_ref = data_ISG %>%
     filter(session_id %in% unique(dt_ref$session_id)) %>%
     select(site_id, ISG_new, score_fauche_sansbonus) %>%
@@ -1568,26 +1522,22 @@ fun_fauche_moyenne = function(dt_site, dt_ref) {
 }
 
 
-plot_fauchemoy_VA = fun_fauche_moyenne(dt_site = df_VA, dt_ref = dt_ref_VA)
-plot_fauchemoy_VA
+fun_fauche_moyenne(dt_site = df_VA, dt_ref = dt_ref_VA)
+fun_fauche_moyenne(dt_site = df_VM, dt_ref = dt_ref_VM)
 
-plot_fauchemoy_VM = fun_fauche_moyenne(dt_site = df_VM, dt_ref = dt_ref_VM)
-plot_fauchemoy_VM
 
 
 
 ```
 
-
-
-
-
 ### Evolution de l'intensité de la fauche
+
+visualisation de l'évolution de l'intensité de la fauche grâce au score de fauche au cours des années de suivi.
 
 ```{r}
 
-
 fun_evol_fauche = function(dt_site) {
+  
   dt_site_ISG = dt_site %>%
     select(session_id, site_id, session_year) %>%
     unique() %>%
@@ -1623,16 +1573,10 @@ fun_evol_fauche = function(dt_site) {
 }
 
 
-plot_evolfauche_VA = fun_evol_fauche(dt_site = df_VA)
-plot_evolfauche_VA
+fun_evol_fauche(dt_site = df_VA)
 
-plot_evolfauche_VM = fun_evol_fauche(dt_site = df_VM)
-plot_evolfauche_VM
+
+# plot_evolfauche_VM = fun_evol_fauche(dt_site = df_VM)
+# plot_evolfauche_VM
 
 ```
-
-
-
-
-
-
