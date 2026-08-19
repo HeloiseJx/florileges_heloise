@@ -799,7 +799,6 @@ dt_ISG = df_corr_final %>%
 
 
 
-
 # Jeu final : combine les données floristiques complètes avec les variables de gestion corrigées et l'ISG.
 cols = c(colnames(dt_ISG) , colnames(df_corr_final)) %>% unique() %>% setdiff("session_id")
 

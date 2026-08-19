@@ -1264,72 +1264,171 @@ fun_graphe_riches_gradient(dt_ref = dt_ref_VA, dt_local = df_VA, site = "VA")
 
 ## TYPICITE
 
-### repartition des sessions du référentiel dans les freq de plantes prairiales, de friches et de gazon
 
+### calcul de typicité avec biais
 ```{r}
-# creation de la table de fonctionnalité pour les sites de référence
-dt_traits = read.csv2("data/SpeciesTrait2024.csv") %>% filter(ListeFlorilege == 1)
 
+# ============================================================
+# Fonction de calcul de la typicité des sites
+# ============================================================
+# La fonction prend en entrée une table de relevés floristiques
+# et calcule, pour chaque site, la proportion de plantes associées
+# aux différents habitats de référence (friche, gazon, prairie).
+# Cette fonction ne supprime pas le biais inhérent à la liste florilèges qui est composée d'espèces prairiales principalement.
 
-
-fun_typicite_calcul = function(table_flori) {
+fun_typicite_calcul_biais = function(table_flori) {
   
+  
+  # ----------------------------------------------------------
+  # Préparation de la table des observations floristiques
+  # ----------------------------------------------------------
+  
+  # Sélection des variables nécessaires au calcul.
+  # unique() permet de supprimer les éventuels doublons.
   dt_fonctionnalite = table_flori %>%
-    select(session_id, site_id, session_year, taxon, taxon_nom_scientifique, taxon_presence, presence_sp) %>%
+    select(
+      session_id,
+      site_id,
+      session_year,
+      taxon,
+      taxon_nom_scientifique,
+      taxon_presence,
+      presence_sp
+    ) %>%
     unique() %>%
-    mutate(taxon_nom_scientifique = case_when(
+    
+    # Harmonisation de certains noms scientifiques afin qu'ils
+    # correspondent aux noms utilisés dans la table dt_traits.
+    mutate(
+      taxon_nom_scientifique = case_when(
         taxon_nom_scientifique == "Silene latifolia subsp. alba" ~ "Silene latifolia",
         taxon_nom_scientifique == "Cerastium fontanum subsp. vulgare" ~ "Cerastium fontanum",
         taxon_nom_scientifique == "Plantago major subsp. major" ~ "Plantago major",
         taxon_nom_scientifique == "Medicago sativa subsp. sativa" ~ "Medicago sativa",
         taxon_nom_scientifique == "Taraxacum sectionruderalia" ~ "Taraxacum section ruderalia",
+        
+        # Cas particulier éventuellement à traiter :
         # taxon_nom_scientifique == "Festuca rubra Gr." ~ "Festuca rubra",
+        
+        # Pour toutes les autres espèces, on conserve le nom initial.
         TRUE ~ taxon_nom_scientifique
       )
     ) %>%
-    left_join(dt_traits %>% rename(taxon_nom_scientifique = Plant)) %>%
+    
+    # Ajout des informations sur l'habitat typique de chaque espèce
+    # à partir de la table de référence dt_traits.
+    # La colonne "Plant" de dt_traits correspond au nom scientifique
+    # utilisé dans la table des observations.
+    left_join(
+      dt_traits %>% 
+        rename(taxon_nom_scientifique = Plant)
+    ) %>%
+    
+    # On conserve uniquement les espèces pour lesquelles un habitat
+    # de référence est renseigné.
     filter(!is.na(HABITAT))
   
   
-  # table temporaire de la typicité de chaque site ( % de plantes spécialistes des prairies, friches et gazons)
+  # ----------------------------------------------------------
+  # Calcul de la typicité pour chaque site
+  # ----------------------------------------------------------
+  
+  # Pour chaque site :
+  # 1. On calcule le nombre/fréquence total de plantes observées.
+  # 2. On regroupe ensuite les observations par habitat.
+  # 3. On calcule la proportion (%) de plantes appartenant à chaque
+  #    type d'habitat.
+  #
+  # Exemple :
+  # si 60 % des fréquences correspondent à des espèces typiques
+  # des prairies, alors prop_habitat = 60 pour HABITAT = "prairie".
   dt_typicite_temp = dt_fonctionnalite %>%
     group_by(site_id) %>%
+    
+    # Somme des fréquences de présence de toutes les espèces
+    # observées sur le site.
     mutate(sum_freq = sum(taxon_presence)) %>%
     ungroup() %>%
+    
+    # Calcul de la somme des fréquences pour chaque habitat
+    # au sein de chaque site.
     group_by(site_id, HABITAT) %>%
-    reframe(prop_habitat = 100 * sum(taxon_presence) / sum_freq) %>%
+    reframe(
+      prop_habitat = 100 * sum(taxon_presence) / sum_freq
+    ) %>%
     ungroup() %>%
+    
+    # Suppression des éventuels doublons.
     unique() %>%
-    # cas des sessions vides
-    mutate(prop_habitat = case_when(is.na(prop_habitat) ~ 0, TRUE ~ prop_habitat))
+    
+    # Pour les sessions/sites sans observation, une proportion NA
+    # est remplacée par 0.
+    mutate(
+      prop_habitat = case_when(
+        is.na(prop_habitat) ~ 0,
+        TRUE ~ prop_habitat
+      )
+    )
   
-  # palier au cas où aucune plante représentant d'un habitat n'est présente pour un site
-  dt_habitat = dt_traits %>% select(HABITAT) %>% unique()
+  
+  # ----------------------------------------------------------
+  # Création de toutes les combinaisons site × habitat
+  # ----------------------------------------------------------
+  
+  # Liste des habitats présents dans la table de référence.
+  dt_habitat = dt_traits %>%
+    select(HABITAT) %>%
+    unique()
+  
+  # Liste des sites pour lesquels une typicité a été calculée.
   dt_sites = dt_typicite_temp %>%
     select(site_id) %>%
     unique() %>%
+    
+    # Création de toutes les combinaisons possibles entre les sites
+    # et les habitats.
+    #
+    # Cette étape est importante car un site peut ne contenir aucune
+    # espèce typique d'un habitat donné. Dans ce cas, la combinaison
+    # site × habitat n'existerait pas dans dt_typicite_temp.
     crossing(dt_habitat)
   
-  # table finale avec pour chaque site le % de plantes typiques des 3 habitats
+  
+  # ----------------------------------------------------------
+  # Création de la table finale de typicité
+  # ----------------------------------------------------------
+  
+  # On rattache les proportions calculées à toutes les combinaisons
+  # site × habitat.
+  #
+  # Si aucune espèce d'un habitat n'est présente sur un site,
+  # le left_join() produit une valeur NA. Celle-ci est remplacée
+  # par 0 afin d'obtenir une valeur explicite de 0 %.
   dt_typicite = dt_sites %>%
     left_join(dt_typicite_temp) %>%
-    mutate(prop_habitat = replace_na(prop_habitat, 0))
+    mutate(
+      prop_habitat = replace_na(prop_habitat, 0)
+    )
   
+  
+  # Retourne la table finale contenant, pour chaque site,
+  # la proportion de plantes typiques de chaque habitat.
   return(dt_typicite)
-  
-
 }
 
 
-dt_typicite_refVA = fun_typicite_calcul(dt_ref_VA)
-dt_typicite_VA = fun_typicite_calcul(df_VA)
 
-dt_typicite_refVM = fun_typicite_calcul(dt_ref_VM)
-dt_typicite_VM = fun_typicite_calcul(table_flori = df_VM)
+dt_typicite_refVA_biais = fun_typicite_calcul_biais(dt_ref_VA)
+dt_typicite_VA_biais = fun_typicite_calcul_biais(df_VA)
+
+dt_typicite_refVM_biais = fun_typicite_calcul_biais(dt_ref_VM)
+dt_typicite_VM_biais = fun_typicite_calcul_biais(table_flori = df_VM)
 
 
 
 ```
+
+
 
 
 
@@ -1341,8 +1440,8 @@ dt_typicite_VM = fun_typicite_calcul(table_flori = df_VM)
 
 fun_plot_typicite = function(dt_ref, dt_site) {
   
-  dt_typicite_ref = fun_typicite_calcul(dt_ref)
-  dt_typicite_site = fun_typicite_calcul(dt_site)
+  dt_typicite_ref = fun_typicite_calcul_biais(dt_ref)
+  dt_typicite_site = fun_typicite_calcul_biais(dt_site)
   
   plot =
   ggplot() +
@@ -1710,169 +1809,5 @@ dt_evol_typicite_refVA = fun_evol_typicite(dt_ref_VA, site = 1)
 ```
 
 
-
-
-### calcul de typicité avec biais
-```{r}
-
-# ============================================================
-# Fonction de calcul de la typicité des sites
-# ============================================================
-# La fonction prend en entrée une table de relevés floristiques
-# et calcule, pour chaque site, la proportion de plantes associées
-# aux différents habitats de référence (friche, gazon, prairie).
-# Cette fonction ne supprime pas le biais inhérent à la liste florilèges qui est composée d'espèces prairiales principalement.
-
-fun_typicite_calcul_biais = function(table_flori) {
-  
-  
-  # ----------------------------------------------------------
-  # Préparation de la table des observations floristiques
-  # ----------------------------------------------------------
-  
-  # Sélection des variables nécessaires au calcul.
-  # unique() permet de supprimer les éventuels doublons.
-  dt_fonctionnalite = table_flori %>%
-    select(
-      session_id,
-      site_id,
-      session_year,
-      taxon,
-      taxon_nom_scientifique,
-      taxon_presence,
-      presence_sp
-    ) %>%
-    unique() %>%
-    
-    # Harmonisation de certains noms scientifiques afin qu'ils
-    # correspondent aux noms utilisés dans la table dt_traits.
-    mutate(
-      taxon_nom_scientifique = case_when(
-        taxon_nom_scientifique == "Silene latifolia subsp. alba" ~ "Silene latifolia",
-        taxon_nom_scientifique == "Cerastium fontanum subsp. vulgare" ~ "Cerastium fontanum",
-        taxon_nom_scientifique == "Plantago major subsp. major" ~ "Plantago major",
-        taxon_nom_scientifique == "Medicago sativa subsp. sativa" ~ "Medicago sativa",
-        taxon_nom_scientifique == "Taraxacum sectionruderalia" ~ "Taraxacum section ruderalia",
-        
-        # Cas particulier éventuellement à traiter :
-        # taxon_nom_scientifique == "Festuca rubra Gr." ~ "Festuca rubra",
-        
-        # Pour toutes les autres espèces, on conserve le nom initial.
-        TRUE ~ taxon_nom_scientifique
-      )
-    ) %>%
-    
-    # Ajout des informations sur l'habitat typique de chaque espèce
-    # à partir de la table de référence dt_traits.
-    # La colonne "Plant" de dt_traits correspond au nom scientifique
-    # utilisé dans la table des observations.
-    left_join(
-      dt_traits %>% 
-        rename(taxon_nom_scientifique = Plant)
-    ) %>%
-    
-    # On conserve uniquement les espèces pour lesquelles un habitat
-    # de référence est renseigné.
-    filter(!is.na(HABITAT))
-  
-  
-  # ----------------------------------------------------------
-  # Calcul de la typicité pour chaque site
-  # ----------------------------------------------------------
-  
-  # Pour chaque site :
-  # 1. On calcule le nombre/fréquence total de plantes observées.
-  # 2. On regroupe ensuite les observations par habitat.
-  # 3. On calcule la proportion (%) de plantes appartenant à chaque
-  #    type d'habitat.
-  #
-  # Exemple :
-  # si 60 % des fréquences correspondent à des espèces typiques
-  # des prairies, alors prop_habitat = 60 pour HABITAT = "prairie".
-  dt_typicite_temp = dt_fonctionnalite %>%
-    group_by(site_id) %>%
-    
-    # Somme des fréquences de présence de toutes les espèces
-    # observées sur le site.
-    mutate(sum_freq = sum(taxon_presence)) %>%
-    ungroup() %>%
-    
-    # Calcul de la somme des fréquences pour chaque habitat
-    # au sein de chaque site.
-    group_by(site_id, HABITAT) %>%
-    reframe(
-      prop_habitat = 100 * sum(taxon_presence) / sum_freq
-    ) %>%
-    ungroup() %>%
-    
-    # Suppression des éventuels doublons.
-    unique() %>%
-    
-    # Pour les sessions/sites sans observation, une proportion NA
-    # est remplacée par 0.
-    mutate(
-      prop_habitat = case_when(
-        is.na(prop_habitat) ~ 0,
-        TRUE ~ prop_habitat
-      )
-    )
-  
-  
-  # ----------------------------------------------------------
-  # Création de toutes les combinaisons site × habitat
-  # ----------------------------------------------------------
-  
-  # Liste des habitats présents dans la table de référence.
-  dt_habitat = dt_traits %>%
-    select(HABITAT) %>%
-    unique()
-  
-  # Liste des sites pour lesquels une typicité a été calculée.
-  dt_sites = dt_typicite_temp %>%
-    select(site_id) %>%
-    unique() %>%
-    
-    # Création de toutes les combinaisons possibles entre les sites
-    # et les habitats.
-    #
-    # Cette étape est importante car un site peut ne contenir aucune
-    # espèce typique d'un habitat donné. Dans ce cas, la combinaison
-    # site × habitat n'existerait pas dans dt_typicite_temp.
-    crossing(dt_habitat)
-  
-  
-  # ----------------------------------------------------------
-  # Création de la table finale de typicité
-  # ----------------------------------------------------------
-  
-  # On rattache les proportions calculées à toutes les combinaisons
-  # site × habitat.
-  #
-  # Si aucune espèce d'un habitat n'est présente sur un site,
-  # le left_join() produit une valeur NA. Celle-ci est remplacée
-  # par 0 afin d'obtenir une valeur explicite de 0 %.
-  dt_typicite = dt_sites %>%
-    left_join(dt_typicite_temp) %>%
-    mutate(
-      prop_habitat = replace_na(prop_habitat, 0)
-    )
-  
-  
-  # Retourne la table finale contenant, pour chaque site,
-  # la proportion de plantes typiques de chaque habitat.
-  return(dt_typicite)
-}
-
-
-
-dt_typicite_refVA_biais = fun_typicite_calcul_biais(dt_ref_VA)
-dt_typicite_VA_biais = fun_typicite_calcul_biais(df_VA)
-
-dt_typicite_refVM_biais = fun_typicite_calcul_biais(dt_ref_VM)
-dt_typicite_VM_biais = fun_typicite_calcul_biais(table_flori = df_VM)
-
-
-
-```
 
 
