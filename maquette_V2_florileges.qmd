@@ -1081,7 +1081,7 @@ fun_graphe_nectar_gradient = function(dt_ref, dt_local, site) {
     # theme(legend.position = "none") 
      geom_text( aes(x = "nombre d'année(s) de suivi\n locales", y = norm, label = paste0(nb_an, " année(s)")))
   
-  return(plot)
+  print(plot)
   
 }
 
@@ -1097,9 +1097,7 @@ fun_graphe_nectar_gradient(dt_ref = dt_ref_VA, dt_local = df_VA, site = "VA")
 
 Calcul de la typicité pour chaque site : pourcentage relatif de plantes typiques des friches, prairies et gazon en nombre de quadrats sur lesquels elles sont présentes sur toutes les années de suivi = part que représente chaque habitat dans le relevé floristique.
 
-Ces pourcentages sont calculés en tenant compte du biais inhérent à la liste florilèges qui contient une majorité de plantes prairiales et moins d'espèces de friches et gazons.(prairie = 32/60, gazon = 11/60, friche = 17/60 espèces)
-Ainsi il s'agit des pourcentages réels de quadrats étudiés sur lesquels on observe l'habitat, pondéré par la part de l'habitat dans la liste d'espèces.
-
+Ces pourcentages sont calculés en tenant compte du biais inhérent à la liste florilèges qui contient une majorité de plantes prairiales et moins d'espèces de friches et gazons.(prairie = 32/60, gazon = 11/60, friche = 17/60 espèces) Ainsi il s'agit des pourcentages réels de quadrats étudiés sur lesquels on observe l'habitat, pondéré par la part de l'habitat dans la liste d'espèces.
 
 Cette fonction calcule ces pourcentages pour un df donné.
 
@@ -1121,8 +1119,6 @@ n_especes <- c(
   prairie = 32
 )
 ```
-
-
 
 ```{r}
 
@@ -1237,15 +1233,9 @@ dt_typicite_refVA = fun_typicite_calcul(dt_ref_VA)
 
 ```
 
-
-
-
-
 **graphe typicite**
 
 Représentation en densité des typicités des sites de référence. Affichage en point des valeurs de typicité pour les sites considérés localement --\> fonctionne pour un seul site en local.
-
-
 
 ### typicité moyenne du site
 
@@ -1283,12 +1273,12 @@ fun_plot_typicite = function(dt_ref, dt_site) {
     labs(y = "densité", x = "proportion relative d'espèces de l'habitat")
   
   
-  return(plot)
+  print(plot)
   
   
 }
 
-fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
+# fun_plot_typicite(dt_ref = dt_ref_VA, dt_site = df_VA)
 
 fun_plot_typicite(dt_ref = dt_ref_VM, dt_site = df_VM)
 
@@ -1302,7 +1292,8 @@ calcul pour un site donné de la typicité par année (abondance moyenne par esp
 prairie = 32/60, gazon = 11/60, friche = 17/60 espèces
 
 ```{r}
-
+#| column: screen-inset-shaded
+#| layout-nrow: 1
 
 fun_evol_typicite = function(table_flori, site) {
 
@@ -1413,6 +1404,9 @@ dt_evol_typicite_refVA = fun_evol_typicite(dt_ref_VA, site = 1)
 affichage pour un site donné de l'évolution des parts relatives des différents habitats dans le relevé floristique.
 
 ```{r}
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
 fun_plot_evol_typicite = function(table_flori, site) {
   
   dt_typicite_evol = fun_evol_typicite(table_flori, site)
@@ -1446,13 +1440,13 @@ fun_plot_evol_typicite = function(table_flori, site) {
     ))
   
 
-  return(plot_evol_typi)
+  print(plot_evol_typi)
   
   
 }
 
-fun_plot_evol_typicite(df_VA, 1109)
-# fun_plot_evol_typicite(df_VM, 645)
+# fun_plot_evol_typicite(df_VA, 1109)
+# # fun_plot_evol_typicite(df_VM, 645)
 fun_plot_evol_typicite(dt_ref_national, 959) #gazon
 fun_plot_evol_typicite(dt_ref_national, 689)# friche
 fun_plot_evol_typicite(dt_ref_national, 687) # prairie
@@ -1462,10 +1456,13 @@ fun_plot_evol_typicite(dt_ref_national, 687) # prairie
 
 On s'intéresse aux données de fauche. Il est nécessaire de les nettoyer au préalable (application des filtres de Gabriel Sagot - stage M2 -2025). Ce script détaille les étapes de nettoyage et les modalité de calcul des scores de fauche. Le df data_ISG produit à la fin de ce script sert dans les chunks suivants. Il y a 2 scores de fauche : le score de fauche sans bonus (colonne 'score_fauche_sansbonus'), prenant les valeurs 1, 2, 4 et 6 & le score de fauche (colonne 'score_fauche'), prenant les valeurs entières allant de 1 à 8.
 
-
 ```{r}
 source(here::here("gestion_florileges_V3.R") )
 #on obtient data_ISG pour toutes les sessions florilèges
+knitr::knit_child(
+  "gestion_florileges_V3.qmd",
+  quiet = TRUE
+)
 ```
 
 ### Intensité moyenne de la fauche pratiquée sur le site
@@ -1473,7 +1470,8 @@ source(here::here("gestion_florileges_V3.R") )
 Ce script permet de calculer une intensité de fauche moyenne pratiquée sur le site considéré et de replacer cette valeur par rapport aux valeurs de référence. On considère ici le score de fauche sans bonus.
 
 ```{r}
-
+#| column: screen-inset-shaded
+#| layout-nrow: 1
 
 fun_fauche_moyenne = function(dt_site, dt_ref) {
   
@@ -1495,7 +1493,7 @@ fun_fauche_moyenne = function(dt_site, dt_ref) {
     filter(!is.na(score_fauche_sansbonus)) %>%
     distinct()
   
-  DT::datatable(head(dt_ISG_ref))
+  print(head(dt_ISG_ref))
   
   plot_fauche =
     ggplot() +
@@ -1517,7 +1515,7 @@ fun_fauche_moyenne = function(dt_site, dt_ref) {
     theme(legend.position = "none") 
 
   
-  return(plot_fauche) 
+  print(plot_fauche) 
   
 }
 
@@ -1544,7 +1542,7 @@ fun_evol_fauche = function(dt_site) {
     left_join(data_ISG %>% select(session_id, session_year, score_fauche) %>% unique()) %>%
     unique()
   
-  DT::datatable(head(dt_site_ISG))
+  print(head(dt_site_ISG))
   
   plot_evol_fauche =
     ggplot() +
@@ -1569,7 +1567,7 @@ fun_evol_fauche = function(dt_site) {
                        )) +
     scale_y_continuous(limits = c(0, 8), breaks = seq(0, 8, by = 1))
   
-  return(plot_evol_fauche)
+  print(plot_evol_fauche)
 }
 
 
